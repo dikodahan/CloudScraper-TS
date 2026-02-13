@@ -1,4 +1,3 @@
-/// <reference types="node" />
 import * as vm from "vm";
 interface ContextOptions {
     body: string;

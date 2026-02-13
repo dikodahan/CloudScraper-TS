@@ -7,7 +7,6 @@ const VM_OPTIONS = {
     timeout: 5000,
 };
 
-// eslint-disable-next-line @typescript-eslint/no-inferrable-types
 const VM_ENV: string = `
   (function (global) {
     const cache = Object.create(null);
@@ -53,7 +52,6 @@ export class Context {
 
         const atob = Object.setPrototypeOf(function (str: string): string | undefined {
             try {
-                // eslint-disable-next-line no-undef
                 return Buffer.from(str, "base64").toString("binary");
             } catch (e) {
                 // Catch error
@@ -66,7 +64,7 @@ export class Context {
                 href: "http://" + (options.hostname || "") + "/",
                 atob,
             },
-            null
+            null,
         );
     }
 }

@@ -13,9 +13,7 @@ const brotli: Brotli = {
 
 function optional(require: NodeRequire): boolean {
     try {
-
         brotli.decompress = function (buf: Buffer): Buffer {
-            // eslint-disable-next-line no-undef
             return Buffer.from(decompress(buf));
         };
 
@@ -36,7 +34,6 @@ if (typeof zlib.brotliDecompressSync === "function") {
     };
 
     brotli.isAvailable = true;
-    // eslint-disable-next-line no-undef
 } else if (optional(require)) {
     brotli.isAvailable = true;
 }

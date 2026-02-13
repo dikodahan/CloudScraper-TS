@@ -1,5 +1,4 @@
 import * as os from "os";
-import * as original from "request-promise-core/errors";
 import * as http from "http";
 
 const EOL = os.EOL;
@@ -8,8 +7,7 @@ interface CloudflareErrorCodes {
     [key: number]: string;
 }
 
-const ERROR_CODES = {
-    // Non-standard 5xx server error HTTP status codes
+const ERROR_CODES: CloudflareErrorCodes = {
     520: "Web server is returning an unknown error",
     521: "Web server is down",
     522: "Connection timed out",
@@ -19,7 +17,6 @@ const ERROR_CODES = {
     526: "Invalid SSL certificate",
     527: "Railgun Listener to Origin Error",
     530: "Origin DNS error",
-    // Other codes
     1000: "DNS points to prohibited IP",
     1001: "DNS resolution error",
     1002: "Restricted or DNS points to Prohibited IP",
@@ -35,78 +32,138 @@ const ERROR_CODES = {
     1020: "Access Denied (Custom Firewall Rules)",
 };
 
-ERROR_CODES[1006] = ERROR_CODES[1007] = ERROR_CODES[1008] = "Access Denied: Your IP address has been banned";
+ERROR_CODES[1006] = ERROR_CODES[1007] = ERROR_CODES[1008] =
+    "Access Denied: Your IP address has been banned";
 
 function format(lines: string[]): string {
     return EOL + lines.join(EOL) + EOL + EOL;
 }
 
-const BUG_REPORT = format(["### Cloudflare may have changed their technique, or there may be a bug.", "### Bug Reports: https://github.com/codemanki/cloudscraper/issues", "### Check the detailed exception message that follows for the cause."]);
-class CustomError extends original.RequestError {
-    errorType: number;
+const BUG_REPORT = format([
+    "### Cloudflare may have changed their technique, or there may be a bug.",
+    "### Bug Reports: https://github.com/codemanki/cloudscraper/issues",
+    "### Check the detailed exception message that follows for the cause.",
+]);
 
-    constructor(cause: any, options?: any, response?: any) {
-        super(cause, options, response);
+class CustomError extends Error {
+    errorType: number;
+    options?: unknown;
+    response?: unknown;
+
+    constructor(cause: unknown, options?: unknown, response?: unknown) {
+        const message =
+            cause instanceof Error ? cause.message : String(cause);
+        super(message);
+        this.name = "RequestError";
         this.errorType = 0;
+        this.options = options;
+        this.response = response;
+        if (cause instanceof Error && cause.stack) {
+            this.cause = cause;
+        }
     }
 }
 
 export class RequestError extends CustomError {
-    name: string;
-    constructor(cause: any, options?: any, response?: any) {
+    override name = "RequestError";
+    override errorType = 0;
+
+    constructor(cause: unknown, options?: unknown, response?: unknown) {
         super(cause, options, response);
         this.name = "RequestError";
-        this.errorType = 0;
     }
 }
 
 export class CaptchaError extends CustomError {
-    name: string;
-    constructor(cause: any, options?: any, response?: any) {
+    override name = "CaptchaError";
+    override errorType = 1;
+
+    constructor(cause: unknown, options?: unknown, response?: unknown) {
         super(cause, options, response);
         this.name = "CaptchaError";
-        this.errorType = 1;
     }
 }
 
 export class CloudflareError extends CustomError {
-    name: string;
-    message: string | undefined;
-    constructor(cause: any, options?: any, response?: any) {
+    override name = "CloudflareError";
+    override errorType = 2;
+    override message: string;
+
+    constructor(cause: unknown, options?: unknown, response?: unknown) {
         super(cause, options, response);
         this.name = "CloudflareError";
-        this.errorType = 2;
-
-        if (!isNaN(cause)) {
-            const description = ERROR_CODES[cause] || http.STATUS_CODES[cause];
+        this.message = "";
+        if (typeof cause === "number" && !isNaN(cause)) {
+            const description =
+                ERROR_CODES[cause] || http.STATUS_CODES[cause];
             if (description) {
                 this.message = cause + ", " + description;
             }
+        }
+        if (!this.message && cause instanceof Error) {
+            this.message = cause.message;
+        }
+        if (!this.message) {
+            this.message = String(cause);
         }
     }
 }
 
 export class ParserError extends CustomError {
-    name: string;
-    message = "";
-    constructor(cause: any, options?: any, response?: any) {
+    override name = "ParserError";
+    override errorType = 3;
+    override message = "";
+
+    constructor(cause: unknown, options?: unknown, response?: unknown) {
         super(cause, options, response);
         this.name = "ParserError";
-        this.errorType = 3;
-        this.message = BUG_REPORT + this.message;
+        this.message = BUG_REPORT + (cause instanceof Error ? cause.message : String(cause));
     }
 }
 
-// The following errors originate from promise-core and its dependents.
-// Give them an errorType for consistency.
-original.StatusCodeError.prototype.errorType = 5;
-original.TransformError.prototype.errorType = 6;
+/**
+ * Thrown when Cloudflare returns the newer "Just a moment..." / orchestrate challenge.
+ * This challenge requires a real browser (or a clearance service). Provide
+ * solveOrchestrateChallenge in defaultParams to handle it (e.g. with Puppeteer/Playwright).
+ */
+export class OrchestrateChallengeError extends CustomError {
+    override name = "OrchestrateChallengeError";
+    override errorType = 7;
+    override message: string;
 
-// Export our custom errors along with StatusCodeError, etc.
+    constructor(options?: unknown, response?: unknown) {
+        super(
+            "Cloudflare orchestrate challenge (Just a moment...). " +
+                "This challenge requires a browser. Pass solveOrchestrateChallenge in defaultParams, " +
+                "e.g. using Puppeteer/Playwright to open the URL and capture cookies.",
+            options,
+            response,
+        );
+        this.name = "OrchestrateChallengeError";
+        this.message =
+            "Cloudflare orchestrate challenge (Just a moment...). " +
+            "Provide solveOrchestrateChallenge in defaultParams to solve it (e.g. with Puppeteer/Playwright).";
+    }
+}
+
+/** For compatibility with code that expected request-promise-core StatusCodeError */
+export class StatusCodeError extends CustomError {
+    override name = "StatusCodeError";
+    override errorType = 5;
+}
+
+/** For compatibility with code that expected request-promise-core TransformError */
+export class TransformError extends CustomError {
+    override name = "TransformError";
+    override errorType = 6;
+}
+
 export const errors = {
-    ...original,
-    RequestError: RequestError,
-    CaptchaError: CaptchaError,
-    ParserError: ParserError,
-    CloudflareError: CloudflareError,
+    RequestError,
+    CaptchaError,
+    ParserError,
+    CloudflareError,
+    OrchestrateChallengeError,
+    StatusCodeError,
+    TransformError,
 };

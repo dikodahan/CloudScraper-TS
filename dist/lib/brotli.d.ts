@@ -1,5 +1,3 @@
-/// <reference types="node" />
-/// <reference types="node" />
 interface Brotli {
     isAvailable: boolean;
     decompress?: (buf: Buffer) => Buffer;

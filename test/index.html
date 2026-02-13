@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CloudScraper-TS – Test</title>
+    <style>
+        :root {
+            --bg: #1a1b26;
+            --surface: #24283b;
+            --text: #a9b1d6;
+            --accent: #7aa2f7;
+            --success: #9ece6a;
+            --error: #f7768e;
+            --muted: #565f89;
+        }
+        * { box-sizing: border-box; }
+        body {
+            font-family: "JetBrains Mono", "Fira Code", "SF Mono", monospace;
+            font-size: 13px;
+            line-height: 1.5;
+            margin: 0;
+            padding: 1rem 1.5rem;
+            background: var(--bg);
+            color: var(--text);
+            max-width: 1200px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        h1 { font-size: 1.25rem; color: var(--accent); margin-top: 0; }
+        .option {
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .option input[type="checkbox"] { accent-color: var(--accent); }
+        .buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        button {
+            padding: 0.5rem 1rem;
+            background: var(--surface);
+            color: var(--accent);
+            border: 1px solid var(--muted);
+            border-radius: 4px;
+            cursor: pointer;
+            font: inherit;
+        }
+        button:hover { border-color: var(--accent); background: #2a2e42; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        .panel {
+            background: var(--surface);
+            border-radius: 6px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            border: 1px solid var(--muted);
+        }
+        .panel h2 { font-size: 0.9rem; color: var(--muted); margin: 0 0 0.5rem 0; }
+        pre {
+            margin: 0;
+            white-space: pre-wrap;
+            word-break: break-word;
+            max-height: 400px;
+            overflow: auto;
+            font-size: 12px;
+        }
+        .success { color: var(--success); }
+        .error { color: var(--error); }
+        .debug-line { margin: 0.2em 0; }
+        .debug-ts { color: var(--muted); margin-right: 0.5em; }
+    </style>
+</head>
+<body>
+    <h1>CloudScraper-TS – Test</h1>
+    <p>Click a button to run a request through the library. Response and debug output appear below. Use this to validate behavior and to copy debug info when reporting issues.</p>
+
+    <div class="option">
+        <input type="checkbox" id="usePuppeteer" checked />
+        <label for="usePuppeteer">Use Puppeteer to solve “Just a moment…” (orchestrate) challenge (optional: install <code>puppeteer</code> or <code>playwright</code>; if neither installed, you'll get a clear error)</label>
+    </div>
+
+    <div class="buttons">
+        <button type="button" data-url="https://www.cloudflare.com/" data-method="GET">Cloudflare – GET</button>
+        <button type="button" data-url="https://nowsecure.nl/" data-method="GET">NowSecure (CF test) – GET</button>
+        <button type="button" data-url="https://1.1.1.1/" data-method="GET">Cloudflare 1.1.1.1 – GET</button>
+        <button type="button" data-url="https://www.cloudflare.com/cdn-cgi/trace" data-method="GET">Cloudflare trace – GET</button>
+    </div>
+
+    <div class="panel">
+        <h2>Result</h2>
+        <pre id="result">(Click a button to run a test.)</pre>
+    </div>
+    <div class="panel">
+        <h2>Response preview</h2>
+        <pre id="bodyPreview">—</pre>
+    </div>
+    <div class="panel">
+        <h2>Debug log</h2>
+        <pre id="debugLog">—</pre>
+    </div>
+
+    <script>
+        const resultEl = document.getElementById("result");
+        const bodyPreviewEl = document.getElementById("bodyPreview");
+        const debugLogEl = document.getElementById("debugLog");
+
+        function setResult(text, isError) {
+            resultEl.textContent = text;
+            resultEl.className = isError ? "error" : "success";
+        }
+        function setBodyPreview(text) {
+            bodyPreviewEl.textContent = text == null ? "—" : text;
+        }
+        function setDebugLog(entries) {
+            if (!entries || entries.length === 0) {
+                debugLogEl.textContent = "—";
+                return;
+            }
+            debugLogEl.innerHTML = entries
+                .map((e) => {
+                    const ts = e.ts || "";
+                    const m = (e.m || "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                    return `<span class="debug-line"><span class="debug-ts">${ts}</span> [${e.t}] ${m}</span>`;
+                })
+                .join("\n");
+        }
+
+        document.querySelectorAll(".buttons button").forEach((btn) => {
+            btn.addEventListener("click", async () => {
+                const url = btn.getAttribute("data-url");
+                const method = (btn.getAttribute("data-method") || "GET").toUpperCase();
+                const payloadRaw = btn.getAttribute("data-payload");
+                let formData = null;
+                if (payloadRaw) {
+                    try {
+                        formData = JSON.parse(payloadRaw);
+                    } catch (_) {
+                        formData = {};
+                    }
+                }
+                const usePuppeteer = document.getElementById("usePuppeteer").checked;
+
+                btn.disabled = true;
+                setResult("Requesting…");
+                setBodyPreview(null);
+                setDebugLog([]);
+
+                const body = { url, method, usePuppeteer };
+                if (formData && Object.keys(formData).length > 0) body.formData = formData;
+
+                try {
+                    const r = await fetch("/fetch", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(body),
+                    });
+                    const data = await r.json();
+
+                    setDebugLog(data.debugLog || []);
+
+                    if (data.success) {
+                        setResult(
+                            `Success – status ${data.statusCode}, body length ${data.bodyLength || 0}${data.isCloudflare ? " (Cloudflare response)" : ""}`
+                        );
+                        setBodyPreview(data.bodyPreview ?? "(empty)");
+                    } else {
+                        setResult(
+                            `Error: ${data.errorName || "Error"} – ${data.errorMessage || "Unknown"}${data.statusCode ? " (HTTP " + data.statusCode + ")" : ""}`
+                        );
+                        setBodyPreview(data.bodyPreview ?? null);
+                    }
+                } catch (err) {
+                    setResult("Request failed: " + err.message);
+                    setBodyPreview(null);
+                } finally {
+                    btn.disabled = false;
+                }
+            });
+        });
+    </script>
+</body>
+</html>
