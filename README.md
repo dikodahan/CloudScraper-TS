@@ -59,3 +59,31 @@ request(
 - **Pick a browser**: use `createPuppeteerOrchestrateSolver()` or `createPlaywrightOrchestrateSolver()` to force one.
 - **Custom solver**: pass a `solveOrchestrateChallenge(context)` function. It receives `{ url, response, body, cookieJar }`. Open `url` in a browser (or call an API), then set the cookies on `cookieJar`. The library will retry with the new cookies.
 - **No solver**: don’t pass a solver; the library throws `OrchestrateChallengeError` when the "Just a moment..." page is hit.
+
+### Using with Next.js / webpack (optional Puppeteer)
+
+If you depend on `cloudscraper-ts` in a Next.js project but **never** use the browser solver (you only call the basic HTTP API), bundlers like webpack may still see the internal `require("puppeteer")` in the compiled output and try to resolve it.
+
+To avoid installing Puppeteer in that case, you can alias it to `false` in your Next config:
+
+```js
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  // ... your existing config ...
+  webpack(config, { isServer }) {
+    if (isServer) {
+      // cloudscraper-ts’s browser solver path references puppeteer,
+      // but if you never use it, you can safely stub it out.
+      config.resolve.alias = {
+        ...(config.resolve.alias || {}),
+        puppeteer: false,
+      };
+    }
+    return config;
+  },
+};
+
+module.exports = nextConfig;
+```
+
+If you later decide to use the Puppeteer-based solver, install `puppeteer` and remove this alias so the real module can be bundled.
