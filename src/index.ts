@@ -775,6 +775,39 @@ export function createFlareSolverrOrchestrateSolver(baseUrl: string): Orchestrat
 }
 
 /**
+ * Returns a solver for the "Just a moment..." orchestrate challenge using a remote
+ * Browserless instance (Browsers-as-a-Service).
+ *
+ * This is useful on constrained platforms (e.g. free tier serverless) where running
+ * a full browser locally is not practical. You still need `puppeteer-core` in the
+ * consuming project, and a Browserless WebSocket endpoint.
+ */
+export function createBrowserlessOrchestrateSolver(browserWSEndpoint: string): OrchestrateSolverFn {
+    return async (context: OrchestrateChallengeContext): Promise<void> => {
+        let puppeteerCore: { connect: (opts: { browserWSEndpoint: string }) => Promise<BrowserLike> };
+        try {
+            const m = await import("puppeteer-core");
+            puppeteerCore = (m.default ?? m) as typeof puppeteerCore;
+        } catch {
+            throw new Error("puppeteer-core not found. Install with: npm install puppeteer-core");
+        }
+        const browser = await puppeteerCore.connect({ browserWSEndpoint });
+        try {
+            const page = await browser.newPage();
+            await page.goto(context.url, {
+                waitUntil: "load",
+                // Browserless enforces its own timeout; this is just a safety cap.
+                timeout: 45000,
+            });
+            const cookies = await page.cookies();
+            await setCookiesOnJar(context.cookieJar, context.url, cookies);
+        } finally {
+            await browser.close();
+        }
+    };
+}
+
+/**
  * Returns a solver for the "Just a moment..." orchestrate challenge using Puppeteer.
  * Optional: install puppeteer to use. The browser will open the challenge URL,
  * run the Cloudflare script, and the resulting cookies are written to the jar.
@@ -864,9 +897,13 @@ interface PlaywrightBrowserLike {
 let defaultOrchestrateSolver: OrchestrateSolverFn | null = null;
 
 /**
- * Returns a solver that tries, in order: FlareSolverr (if FLARESOLVERR_URL is set),
- * then Puppeteer, then Playwright. Puppeteer and Playwright are optional; install one
- * if you don't use FlareSolverr. If none are available, the solver throws when used.
+ * Returns a solver that tries, in order:
+ * 1. FlareSolverr (if FLARESOLVERR_URL is set)
+ * 2. Browserless (if BROWSERLESS_WS_ENDPOINT is set)
+ * 3. Puppeteer
+ * 4. Playwright
+ *
+ * All integrations are optional. If none are available, the solver throws when used.
  */
 export function createDefaultOrchestrateSolver(options?: {
     headless?: boolean;
@@ -876,16 +913,29 @@ export function createDefaultOrchestrateSolver(options?: {
         if (defaultOrchestrateSolver) {
             return defaultOrchestrateSolver(context);
         }
-        const flaresolverrUrl =
-            typeof process !== "undefined" && process.env && process.env.FLARESOLVERR_URL;
-        if (flaresolverrUrl && flaresolverrUrl.trim()) {
-            try {
-                const solver = createFlareSolverrOrchestrateSolver(flaresolverrUrl.trim());
-                await solver(context);
-                defaultOrchestrateSolver = solver;
-                return;
-            } catch (e0) {
-                // Fall through to Puppeteer/Playwright
+        const hasProcess = typeof process !== "undefined" && process.env;
+        if (hasProcess) {
+            const flaresolverrUrl = process.env.FLARESOLVERR_URL;
+            if (flaresolverrUrl && flaresolverrUrl.trim()) {
+                try {
+                    const solver = createFlareSolverrOrchestrateSolver(flaresolverrUrl.trim());
+                    await solver(context);
+                    defaultOrchestrateSolver = solver;
+                    return;
+                } catch {
+                    // Fall through on failure
+                }
+            }
+            const browserlessWs = process.env.BROWSERLESS_WS_ENDPOINT;
+            if (browserlessWs && browserlessWs.trim()) {
+                try {
+                    const solver = createBrowserlessOrchestrateSolver(browserlessWs.trim());
+                    await solver(context);
+                    defaultOrchestrateSolver = solver;
+                    return;
+                } catch {
+                    // Fall through on failure
+                }
             }
         }
         try {

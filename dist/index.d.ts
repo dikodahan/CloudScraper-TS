@@ -105,6 +105,15 @@ type OrchestrateSolverFn = (context: OrchestrateChallengeContext) => Promise<voi
  * solver will try this first when the variable is set.
  */
 export declare function createFlareSolverrOrchestrateSolver(baseUrl: string): OrchestrateSolverFn;
+/**
+ * Returns a solver for the "Just a moment..." orchestrate challenge using a remote
+ * Browserless instance (Browsers-as-a-Service).
+ *
+ * This is useful on constrained platforms (e.g. free tier serverless) where running
+ * a full browser locally is not practical. You still need `puppeteer-core` in the
+ * consuming project, and a Browserless WebSocket endpoint.
+ */
+export declare function createBrowserlessOrchestrateSolver(browserWSEndpoint: string): OrchestrateSolverFn;
 export declare function createPuppeteerOrchestrateSolver(options?: {
     headless?: boolean;
     timeout?: number;
@@ -119,9 +128,13 @@ export declare function createPlaywrightOrchestrateSolver(options?: {
     timeout?: number;
 }): OrchestrateSolverFn;
 /**
- * Returns a solver that tries, in order: FlareSolverr (if FLARESOLVERR_URL is set),
- * then Puppeteer, then Playwright. Puppeteer and Playwright are optional; install one
- * if you don't use FlareSolverr. If none are available, the solver throws when used.
+ * Returns a solver that tries, in order:
+ * 1. FlareSolverr (if FLARESOLVERR_URL is set)
+ * 2. Browserless (if BROWSERLESS_WS_ENDPOINT is set)
+ * 3. Puppeteer
+ * 4. Playwright
+ *
+ * All integrations are optional. If none are available, the solver throws when used.
  */
 export declare function createDefaultOrchestrateSolver(options?: {
     headless?: boolean;

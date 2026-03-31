@@ -38,6 +38,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.OrchestrateChallengeError = void 0;
 exports.createFlareSolverrOrchestrateSolver = createFlareSolverrOrchestrateSolver;
+exports.createBrowserlessOrchestrateSolver = createBrowserlessOrchestrateSolver;
 exports.createPuppeteerOrchestrateSolver = createPuppeteerOrchestrateSolver;
 exports.createPlaywrightOrchestrateSolver = createPlaywrightOrchestrateSolver;
 exports.createDefaultOrchestrateSolver = createDefaultOrchestrateSolver;
@@ -588,6 +589,40 @@ function createFlareSolverrOrchestrateSolver(baseUrl) {
         await setCookiesOnJar(context.cookieJar, context.url, data.solution.cookies);
     };
 }
+/**
+ * Returns a solver for the "Just a moment..." orchestrate challenge using a remote
+ * Browserless instance (Browsers-as-a-Service).
+ *
+ * This is useful on constrained platforms (e.g. free tier serverless) where running
+ * a full browser locally is not practical. You still need `puppeteer-core` in the
+ * consuming project, and a Browserless WebSocket endpoint.
+ */
+function createBrowserlessOrchestrateSolver(browserWSEndpoint) {
+    return async (context) => {
+        let puppeteerCore;
+        try {
+            const m = await Promise.resolve().then(() => __importStar(require("puppeteer-core")));
+            puppeteerCore = (m.default ?? m);
+        }
+        catch {
+            throw new Error("puppeteer-core not found. Install with: npm install puppeteer-core");
+        }
+        const browser = await puppeteerCore.connect({ browserWSEndpoint });
+        try {
+            const page = await browser.newPage();
+            await page.goto(context.url, {
+                waitUntil: "load",
+                // Browserless enforces its own timeout; this is just a safety cap.
+                timeout: 45000,
+            });
+            const cookies = await page.cookies();
+            await setCookiesOnJar(context.cookieJar, context.url, cookies);
+        }
+        finally {
+            await browser.close();
+        }
+    };
+}
 function createPuppeteerOrchestrateSolver(options) {
     return async (context) => {
         let puppeteer;
@@ -652,25 +687,44 @@ function createPlaywrightOrchestrateSolver(options) {
 }
 let defaultOrchestrateSolver = null;
 /**
- * Returns a solver that tries, in order: FlareSolverr (if FLARESOLVERR_URL is set),
- * then Puppeteer, then Playwright. Puppeteer and Playwright are optional; install one
- * if you don't use FlareSolverr. If none are available, the solver throws when used.
+ * Returns a solver that tries, in order:
+ * 1. FlareSolverr (if FLARESOLVERR_URL is set)
+ * 2. Browserless (if BROWSERLESS_WS_ENDPOINT is set)
+ * 3. Puppeteer
+ * 4. Playwright
+ *
+ * All integrations are optional. If none are available, the solver throws when used.
  */
 function createDefaultOrchestrateSolver(options) {
     return async (context) => {
         if (defaultOrchestrateSolver) {
             return defaultOrchestrateSolver(context);
         }
-        const flaresolverrUrl = typeof process !== "undefined" && process.env && process.env.FLARESOLVERR_URL;
-        if (flaresolverrUrl && flaresolverrUrl.trim()) {
-            try {
-                const solver = createFlareSolverrOrchestrateSolver(flaresolverrUrl.trim());
-                await solver(context);
-                defaultOrchestrateSolver = solver;
-                return;
+        const hasProcess = typeof process !== "undefined" && process.env;
+        if (hasProcess) {
+            const flaresolverrUrl = process.env.FLARESOLVERR_URL;
+            if (flaresolverrUrl && flaresolverrUrl.trim()) {
+                try {
+                    const solver = createFlareSolverrOrchestrateSolver(flaresolverrUrl.trim());
+                    await solver(context);
+                    defaultOrchestrateSolver = solver;
+                    return;
+                }
+                catch {
+                    // Fall through on failure
+                }
             }
-            catch (e0) {
-                // Fall through to Puppeteer/Playwright
+            const browserlessWs = process.env.BROWSERLESS_WS_ENDPOINT;
+            if (browserlessWs && browserlessWs.trim()) {
+                try {
+                    const solver = createBrowserlessOrchestrateSolver(browserlessWs.trim());
+                    await solver(context);
+                    defaultOrchestrateSolver = solver;
+                    return;
+                }
+                catch {
+                    // Fall through on failure
+                }
             }
         }
         try {
