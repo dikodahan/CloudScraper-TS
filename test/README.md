@@ -4,7 +4,7 @@
 2. **Start** the test server: `npm run test:server`
 3. **Open** in a browser: http://localhost:8765
 
-**One-shot CLI**: `npm test` or `node test/server.js run [url]`. Default URL is `https://nowsecure.nl`. Override with `TEST_URL` or a third argument. Use `USE_PUPPETEER=1` to solve the orchestrate challenge with a headless browser. To use FlareSolverr instead, copy `.env.sample` to `.env` and set `FLARESOLVERR_URL=http://localhost:8191/v1` (the test server loads `.env` via dotenv).
+**One-shot CLI**: `npm test` or `node test/server.js run [url]`. Default URL is `https://nowsecure.nl`. Override with `TEST_URL` or a third argument. Use `USE_PUPPETEER=1` to enable the default orchestrate solver (Playwright recommended: `npm install playwright && npx playwright install chromium`). For FlareSolverr/Browserless, copy `.env.sample` to `.env` and set the relevant env vars.
 
 Use the buttons to run requests against known Cloudflare-protected sites. The page shows:
 

@@ -34,33 +34,30 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 const zlib = __importStar(require("zlib"));
-const decompress = __importStar(require("brotli/decompress"));
 const brotli = {
     isAvailable: false,
 };
-function optional(require) {
-    try {
-        brotli.decompress = function (buf) {
-            return Buffer.from(decompress(buf));
-        };
-        return typeof decompress === "function";
-    }
-    catch (error) {
-        // Don't throw an exception if the module is not installed
-        if (error.code !== "MODULE_NOT_FOUND") {
-            throw error;
-        }
-    }
-    return false;
-}
-// Check for node's built-in brotli support
+// Node has built-in brotli support since v11.7; on Node >=24 this is always available.
 if (typeof zlib.brotliDecompressSync === "function") {
     brotli.decompress = function (buf) {
         return zlib.brotliDecompressSync(buf);
     };
     brotli.isAvailable = true;
 }
-else if (optional(require)) {
-    brotli.isAvailable = true;
+else {
+    // Fallback for exotic runtimes without native brotli: use the optional "brotli" package if present.
+    // The module id is computed to avoid bundlers (e.g. webpack) trying to resolve an optional package.
+    try {
+        const optionalRequire = eval("require");
+        const moduleId = ["brotli", "decompress"].join("/");
+        const decompress = optionalRequire(moduleId);
+        brotli.decompress = function (buf) {
+            return Buffer.from(decompress(buf));
+        };
+        brotli.isAvailable = typeof decompress === "function";
+    }
+    catch {
+        brotli.isAvailable = false;
+    }
 }
 exports.default = brotli;

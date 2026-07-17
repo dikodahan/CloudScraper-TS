@@ -3,6 +3,18 @@
   "version": "1.1.0",
   "description": "Bypasses some anti-bot pages made by CloudFlare.",
   "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "engines": {
     "node": ">=24.0.0"
   },
@@ -11,33 +23,49 @@
     "test:server": "node test/server.js",
     "build": "tsc --build",
     "clean": "tsc --build --clean",
+    "prepare": "npm run build",
     "eslint": "eslint .",
     "prettier": "prettier --write .",
     "lint": "npm run eslint"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Eltik/CloudScraper-TS.git"
+    "url": "git+https://github.com/dikodahan/CloudScraper-TS.git"
   },
   "author": "eltik",
   "license": "ISC",
   "bugs": {
-    "url": "https://github.com/Eltik/CloudScraper-TS/issues"
+    "url": "https://github.com/dikodahan/CloudScraper-TS/issues"
   },
-  "homepage": "https://github.com/Eltik/CloudScraper-TS#readme",
+  "homepage": "https://github.com/dikodahan/CloudScraper-TS#readme",
   "dependencies": {
-    "brotli": "^1.3.3",
-    "got": "^14.6.6",
-    "tough-cookie": "^4.1.4"
+    "got": "^15.1.0",
+    "tough-cookie": "^6.0.2"
+  },
+  "peerDependencies": {
+    "playwright": "*",
+    "puppeteer": "*",
+    "puppeteer-core": "*"
+  },
+  "peerDependenciesMeta": {
+    "playwright": {
+      "optional": true
+    },
+    "puppeteer": {
+      "optional": true
+    },
+    "puppeteer-core": {
+      "optional": true
+    }
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.0",
-    "@types/node": "^24.10.13",
-    "@types/tough-cookie": "^4.0.5",
-    "dotenv": "^16.4.5",
-    "eslint": "^9.39.0",
-    "prettier": "^3.8.1",
+    "@eslint/js": "^9.39.5",
+    "@types/node": "^24.13.3",
+    "dotenv": "^17.4.2",
+    "eslint": "^9.39.5",
+    "playwright": "^1.58.2",
+    "prettier": "^3.9.5",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.55.0"
+    "typescript-eslint": "^8.64.0"
   }
 }

@@ -1,8 +1,5 @@
 import { CookieJar } from "tough-cookie";
-/** Got is ESM-only; we load it at runtime to keep this package CommonJS. */
-type GotInstance = (urlOrOptions: string | GotRequestOptions) => Promise<GotResponse>;
 interface GotRequestOptions {
-    url?: string;
     method?: string;
     headers?: Record<string, string>;
     cookieJar?: CookieJar;
@@ -10,19 +7,30 @@ interface GotRequestOptions {
     decompress?: boolean;
     responseType?: string;
     throwHttpErrors?: boolean;
+    /** got@15 defaults this to true; disable for Cloudflare challenge bodies. */
+    strictContentLength?: boolean;
     https?: {
         ciphers?: string;
     };
     searchParams?: Record<string, string>;
     form?: Record<string, string>;
     json?: unknown;
+    timeout?: {
+        request?: number;
+    };
+    retry?: {
+        limit?: number;
+    };
 }
 interface GotResponse {
     url: string;
     headers: Record<string, string | string[] | undefined>;
     statusCode: number;
-    body: Buffer | string;
+    /** got@15 returns Uint8Array for responseType: "buffer". */
+    body: Buffer | Uint8Array | string;
 }
+/** Got is ESM-only; we load it at runtime to keep this package CommonJS. */
+type GotInstance = (url: string, options?: GotRequestOptions) => Promise<GotResponse>;
 /** Context passed to solveOrchestrateChallenge when the "Just a moment..." page is encountered. */
 export interface OrchestrateChallengeContext {
     /** URL that returned the challenge (visit this in a browser to obtain cookies). */
@@ -67,6 +75,10 @@ export interface DefaultParams {
     https?: {
         ciphers?: string;
     };
+    /** Per-request timeout in milliseconds (passed to the underlying HTTP client). */
+    timeout?: number;
+    /** Number of low-level HTTP retries the underlying client should attempt (default 0). */
+    retry?: number;
     /**
      * When Cloudflare returns the "Just a moment..." (orchestrate) challenge, call this with the
      * challenge URL and cookie jar. Use a headless browser (e.g. Puppeteer/Playwright) to open
@@ -131,8 +143,8 @@ export declare function createPlaywrightOrchestrateSolver(options?: {
  * Returns a solver that tries, in order:
  * 1. FlareSolverr (if FLARESOLVERR_URL is set)
  * 2. Browserless (if BROWSERLESS_WS_ENDPOINT is set)
- * 3. Puppeteer
- * 4. Playwright
+ * 3. Playwright (recommended for private servers)
+ * 4. Puppeteer
  *
  * All integrations are optional. If none are available, the solver throws when used.
  */

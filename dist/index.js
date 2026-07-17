@@ -52,6 +52,14 @@ async function loadGot() {
     }
     return gotPromise;
 }
+function toBuffer(body) {
+    if (Buffer.isBuffer(body))
+        return body;
+    if (body instanceof Uint8Array) {
+        return Buffer.from(body.buffer, body.byteOffset, body.byteLength);
+    }
+    return Buffer.from(String(body));
+}
 const sandbox_1 = require("./lib/sandbox");
 const email_decode_1 = __importDefault(require("./lib/email-decode"));
 const headers_1 = require("./lib/headers");
@@ -81,7 +89,6 @@ function buildGotOptions(params, opts) {
         }
     }
     const gotOpts = {
-        url,
         method: opts.method ?? "GET",
         headers,
         cookieJar,
@@ -89,6 +96,8 @@ function buildGotOptions(params, opts) {
         decompress: opts.decompress !== false,
         responseType: "buffer",
         throwHttpErrors: false,
+        // Cloudflare challenge responses can mismatch Content-Length after transforms.
+        strictContentLength: false,
         https: opts.https ?? (params?.agentOptions?.ciphers
             ? { ciphers: params.agentOptions.ciphers }
             : {
@@ -96,6 +105,12 @@ function buildGotOptions(params, opts) {
                     ":!ECDHE+SHA:!AES128-SHA",
             }),
     };
+    const timeout = opts.timeout ?? params?.timeout;
+    if (typeof timeout === "number" && timeout > 0) {
+        gotOpts.timeout = { request: timeout };
+    }
+    const retry = opts.retry ?? params?.retry;
+    gotOpts.retry = { limit: typeof retry === "number" && retry >= 0 ? retry : 0 };
     if (opts.qs && Object.keys(opts.qs).length > 0) {
         gotOpts.searchParams = opts.qs;
     }
@@ -110,14 +125,14 @@ function buildGotOptions(params, opts) {
         gotOpts.json = opts.json;
         gotOpts.responseType = "buffer";
     }
-    return gotOpts;
+    return { url, options: gotOpts };
 }
 function buildResponse(gotResponse) {
     const requestUrl = new URL(gotResponse.url);
     return {
         headers: gotResponse.headers,
         statusCode: gotResponse.statusCode,
-        body: Buffer.isBuffer(gotResponse.body) ? gotResponse.body : Buffer.from(String(gotResponse.body)),
+        body: toBuffer(gotResponse.body),
         request: {
             uri: {
                 href: requestUrl.href,
@@ -130,17 +145,16 @@ function buildResponse(gotResponse) {
     };
 }
 async function performRequest(options, params, isFirstRequest) {
-    const url = normalizeUrl(options);
-    const mergedOpts = buildGotOptions(params, options);
+    const merged = buildGotOptions(params, options);
     const requester = params?.requester ?? (await loadGot());
     let raw;
     try {
-        const res = await requester(mergedOpts);
+        const res = await requester(merged.url, merged.options);
         raw = {
             url: res.url,
             headers: res.headers,
             statusCode: res.statusCode,
-            body: Buffer.isBuffer(res.body) ? res.body : Buffer.from(String(res.body)),
+            body: toBuffer(res.body),
         };
     }
     catch (err) {
@@ -473,9 +487,7 @@ async function onRedirectChallenge(options, params, response, body) {
         const jar = options.cookieJar ?? params?.cookieJar ?? params?.jar;
         const cookieStr = ctx.options?.document?.cookie;
         if (jar && cookieStr) {
-            await new Promise((resolve, reject) => {
-                jar.setCookie(cookieStr, uri.href, { ignoreError: true }, (err) => err ? reject(err) : resolve());
-            });
+            await jar.setCookie(cookieStr, uri.href, { ignoreError: true });
         }
     }
     catch (err) {
@@ -548,7 +560,7 @@ Object.defineProperty(request, "debug", {
 var errors_2 = require("./errors");
 Object.defineProperty(exports, "OrchestrateChallengeError", { enumerable: true, get: function () { return errors_2.OrchestrateChallengeError; } });
 function setCookiesOnJar(cookieJar, url, cookies) {
-    const promises = cookies.map((c) => new Promise((resolve, reject) => {
+    return Promise.all(cookies.map(async (c) => {
         const parts = [`${c.name}=${c.value}`];
         if (c.domain)
             parts.push(`Domain=${c.domain}`);
@@ -560,9 +572,8 @@ function setCookiesOnJar(cookieJar, url, cookies) {
             parts.push("HttpOnly");
         if (c.secure)
             parts.push("Secure");
-        cookieJar.setCookie(parts.join("; "), url, { ignoreError: true }, (err) => (err ? reject(err) : resolve()));
-    }));
-    return Promise.all(promises).then(() => { });
+        await cookieJar.setCookie(parts.join("; "), url, { ignoreError: true });
+    })).then(() => undefined);
 }
 /**
  * Returns a solver for the "Just a moment..." orchestrate challenge using a FlareSolverr instance.
@@ -690,8 +701,8 @@ let defaultOrchestrateSolver = null;
  * Returns a solver that tries, in order:
  * 1. FlareSolverr (if FLARESOLVERR_URL is set)
  * 2. Browserless (if BROWSERLESS_WS_ENDPOINT is set)
- * 3. Puppeteer
- * 4. Playwright
+ * 3. Playwright (recommended for private servers)
+ * 4. Puppeteer
  *
  * All integrations are optional. If none are available, the solver throws when used.
  */
@@ -710,8 +721,10 @@ function createDefaultOrchestrateSolver(options) {
                     defaultOrchestrateSolver = solver;
                     return;
                 }
-                catch {
-                    // Fall through on failure
+                catch (err) {
+                    if (debugging) {
+                        console.warn("FlareSolverr solver failed, falling through:", err instanceof Error ? err.message : String(err));
+                    }
                 }
             }
             const browserlessWs = process.env.BROWSERLESS_WS_ENDPOINT;
@@ -722,26 +735,34 @@ function createDefaultOrchestrateSolver(options) {
                     defaultOrchestrateSolver = solver;
                     return;
                 }
-                catch {
-                    // Fall through on failure
+                catch (err) {
+                    if (debugging) {
+                        console.warn("Browserless solver failed, falling through:", err instanceof Error ? err.message : String(err));
+                    }
                 }
             }
         }
         try {
-            const solver = createPuppeteerOrchestrateSolver(options);
+            const solver = createPlaywrightOrchestrateSolver(options);
             await solver(context);
             defaultOrchestrateSolver = solver;
         }
         catch (e1) {
+            const msg1 = e1 instanceof Error ? e1.message : String(e1);
+            const playwrightMissing = /Cannot find module|Module not found|Playwright not found/i.test(msg1) ||
+                (msg1.includes("Executable") && msg1.includes("does not exist"));
+            if (!playwrightMissing) {
+                throw e1;
+            }
             try {
-                const solver = createPlaywrightOrchestrateSolver(options);
+                const solver = createPuppeteerOrchestrateSolver(options);
                 await solver(context);
                 defaultOrchestrateSolver = solver;
             }
             catch (e2) {
                 const inner = e2 instanceof Error ? e2.message : String(e2);
                 // Only treat as "no browser" when package or executable is missing; rethrow timeouts/network errors
-                const isMissingBrowser = /Cannot find module|Module not found|playwright.*not found/i.test(inner) ||
+                const isMissingBrowser = /Cannot find module|Module not found|puppeteer.*not found|Playwright not found/i.test(inner) ||
                     (inner.includes("Executable") && inner.includes("does not exist")) ||
                     /browser.*not found|could not find.*browser/i.test(inner);
                 if (!isMissingBrowser) {
@@ -750,7 +771,7 @@ function createDefaultOrchestrateSolver(options) {
                 const hint = /Executable|browser/i.test(inner)
                     ? " Run: npx playwright install chromium"
                     : "";
-                throw new Error("No headless browser available. Install one of: npm install puppeteer  OR  npm install playwright." +
+                throw new Error("No headless browser available. Install one of: npm install playwright  OR  npm install puppeteer." +
                     hint +
                     (inner ? " (" + inner + ")" : ""), { cause: e2 });
             }
