@@ -31,3 +31,8 @@ node_modules
 .lock-wscript
 
 .nyc_output/
+
+# Local Claude Code guidance and the v2 rebuild plan (untracked, machine-local)
+CLAUDE.md
+CLAUDE.local.md
+.claude/
