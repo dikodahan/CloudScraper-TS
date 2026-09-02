@@ -1,0 +1,16 @@
+---
+description: cloudscraper-ts v2 rebuild sequencing and constraints
+alwaysApply: true
+---
+
+# v2 rebuild
+
+Read `.claude/v2-rebuild-plan.md` (or `.cursor/v2-rebuild-plan.md` if present) before changing transport, solvers, challenge detection, or `browsers.json`.
+
+- Phases run in order: 0 → 1 → 2 → {3, 4} → 5 → 6. Phases 3 and 4 may run together.
+- One phase per turn unless the user names multiple phases.
+- Phase 2 is part of the v2 line (no standalone `1.1.1` patch).
+- Do not add `impit` before Phase 3 or `patchright` before Phase 4.
+- After finishing a phase: update the status table in the plan, report, stop.
+- CommonJS output is required. Optional deps load via `try/catch` around `import(id)` with `id` as a string (never a top-level import).
+- Do not renumber `errorType` values. Rebuild `dist/` after `src/` changes.

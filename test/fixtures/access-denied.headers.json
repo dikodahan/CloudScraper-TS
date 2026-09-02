@@ -1,0 +1,7 @@
+{
+  "statusCode": 403,
+  "headers": {
+    "server": "cloudflare",
+    "content-type": "text/html; charset=UTF-8"
+  }
+}

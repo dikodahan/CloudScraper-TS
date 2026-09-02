@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.errors = exports.TransformError = exports.StatusCodeError = exports.OrchestrateChallengeError = exports.ParserError = exports.CloudflareError = exports.CaptchaError = exports.RequestError = void 0;
+exports.errors = exports.FlareSolverrError = exports.OrchestrateLoopError = exports.AccessDeniedError = exports.OrchestrateChallengeError = exports.ParserError = exports.CloudflareError = exports.RequestError = void 0;
 const os = __importStar(require("os"));
 const http = __importStar(require("http"));
 const EOL = os.EOL;
@@ -61,16 +61,11 @@ const ERROR_CODES = {
     1018: "Domain is misconfigured",
     1020: "Access Denied (Custom Firewall Rules)",
 };
-ERROR_CODES[1006] = ERROR_CODES[1007] = ERROR_CODES[1008] =
-    "Access Denied: Your IP address has been banned";
+ERROR_CODES[1006] = ERROR_CODES[1007] = ERROR_CODES[1008] = "Access Denied: Your IP address has been banned";
 function format(lines) {
     return EOL + lines.join(EOL) + EOL + EOL;
 }
-const BUG_REPORT = format([
-    "### Cloudflare may have changed their technique, or there may be a bug.",
-    "### Bug Reports: https://github.com/codemanki/cloudscraper/issues",
-    "### Check the detailed exception message that follows for the cause.",
-]);
+const BUG_REPORT = format(["### Cloudflare may have changed their technique, or there may be a bug.", "### Bug Reports: https://github.com/codemanki/cloudscraper/issues", "### Check the detailed exception message that follows for the cause."]);
 class CustomError extends Error {
     errorType;
     options;
@@ -96,15 +91,6 @@ class RequestError extends CustomError {
     }
 }
 exports.RequestError = RequestError;
-class CaptchaError extends CustomError {
-    name = "CaptchaError";
-    errorType = 1;
-    constructor(cause, options, response) {
-        super(cause, options, response);
-        this.name = "CaptchaError";
-    }
-}
-exports.CaptchaError = CaptchaError;
 class CloudflareError extends CustomError {
     name = "CloudflareError";
     errorType = 2;
@@ -142,41 +128,57 @@ exports.ParserError = ParserError;
 /**
  * Thrown when Cloudflare returns the newer "Just a moment..." / orchestrate challenge.
  * This challenge requires a real browser (or a clearance service). Provide
- * solveOrchestrateChallenge in defaultParams to handle it (e.g. with Puppeteer/Playwright).
+ * solveOrchestrateChallenge in defaultParams to handle it (e.g. with patchright).
  */
 class OrchestrateChallengeError extends CustomError {
     name = "OrchestrateChallengeError";
     errorType = 7;
     message;
     constructor(options, response) {
-        super("Cloudflare orchestrate challenge (Just a moment...). " +
-            "This challenge requires a browser. Pass solveOrchestrateChallenge in defaultParams, " +
-            "e.g. using Puppeteer/Playwright to open the URL and capture cookies.", options, response);
+        super("Cloudflare orchestrate challenge (Just a moment...). " + "This challenge requires a browser. Pass solveOrchestrateChallenge in defaultParams, " + "e.g. using patchright to open the URL and capture cookies.", options, response);
         this.name = "OrchestrateChallengeError";
-        this.message =
-            "Cloudflare orchestrate challenge (Just a moment...). " +
-                "Provide solveOrchestrateChallenge in defaultParams to solve it (e.g. with Puppeteer/Playwright).";
+        this.message = "Cloudflare orchestrate challenge (Just a moment...). " + "Provide solveOrchestrateChallenge in defaultParams to solve it (e.g. with patchright).";
     }
 }
 exports.OrchestrateChallengeError = OrchestrateChallengeError;
-/** For compatibility with code that expected request-promise-core StatusCodeError */
-class StatusCodeError extends CustomError {
-    name = "StatusCodeError";
-    errorType = 5;
+/** Hard Cloudflare/WAF block. Not retryable — do not launch a solver. */
+class AccessDeniedError extends CustomError {
+    name = "AccessDeniedError";
+    errorType = 1;
+    constructor(options, response) {
+        super("Access denied by Cloudflare (IP/WAF block). This is not a solvable challenge.", options, response);
+        this.name = "AccessDeniedError";
+    }
 }
-exports.StatusCodeError = StatusCodeError;
-/** For compatibility with code that expected request-promise-core TransformError */
-class TransformError extends CustomError {
-    name = "TransformError";
-    errorType = 6;
+exports.AccessDeniedError = AccessDeniedError;
+/** Orchestrate solver exhausted challengesToSolve without a valid cf_clearance. Not retryable. */
+class OrchestrateLoopError extends CustomError {
+    name = "OrchestrateLoopError";
+    errorType = 4;
+    constructor(options, response) {
+        super("Orchestrate challenge loop: solver did not produce cf_clearance within challengesToSolve.", options, response);
+        this.name = "OrchestrateLoopError";
+    }
 }
-exports.TransformError = TransformError;
+exports.OrchestrateLoopError = OrchestrateLoopError;
+/** FlareSolverr returned `{ status: "error" }` or was unreachable. Distinct from a missing local browser. */
+class FlareSolverrError extends CustomError {
+    name = "FlareSolverrError";
+    errorType = 8;
+    screenshot;
+    constructor(cause, options, response) {
+        super(cause, options, response);
+        this.name = "FlareSolverrError";
+        this.message = cause instanceof Error ? cause.message : String(cause);
+    }
+}
+exports.FlareSolverrError = FlareSolverrError;
 exports.errors = {
     RequestError,
-    CaptchaError,
     ParserError,
     CloudflareError,
     OrchestrateChallengeError,
-    StatusCodeError,
-    TransformError,
+    AccessDeniedError,
+    OrchestrateLoopError,
+    FlareSolverrError,
 };

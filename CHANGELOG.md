@@ -1,6 +1,57 @@
 ## Change Log
 
+### 2.0.0
+
+Breaking rebuild. Transport is `impit` (Chrome TLS/JA3/JA4 + HTTP/2) with `got` as fallback. Local solves use `patchright`. FlareSolverr is a first-class optional backend.
+
+**Removed**
+
+- IUAM `jschl_*` / `vm` sandbox solver
+- reCAPTCHA v1/v2 flow, `CaptchaError`, `onCaptcha`
+- `browsers.json` User-Agent list and cipher-list hack
+- `brotli` npm shim (`zlib` handles it)
+- `StatusCodeError`, `TransformError`
+- Hand-written ambient `*.d.ts` for got / puppeteer / playwright
+
+**Changed**
+
+- `solveOrchestrateChallenge` should return `SolverResult` (`cookies` + required `userAgent`; optional `body` / `status` / `headers` / `url` / `turnstileToken`). `void` + cookie-jar mutation still works for one minor version.
+- A GET with `SolverResult.body` skips the follow-up HTTP request.
+- Default solver order: patchright → `FLARESOLVERR_URL` → `BROWSERLESS_WS_ENDPOINT` → playwright → puppeteer.
+- `errorType` 1 is now `AccessDeniedError` (was `CaptchaError`). `errorType` 4 is `OrchestrateLoopError` (was `StatusCodeError`). New: `FlareSolverrError` (`errorType` 8). Do not renumber the rest.
+- `engines.node` is `>=20` (was `>=24`).
+- Optional peers: `impit`, `patchright`, `puppeteer-core`. `playwright` / `puppeteer` are runtime fallbacks, not peers.
+- Lockfile is `pnpm-lock.yaml` (pnpm). `package-lock.json` / `yarn.lock` are gone.
+
+**Added**
+
+- `DefaultParams.proxy`, `impersonate`, `logger`, `debugDir`
+- `SolverOptions`: `tabsTillVerify`, `disableMedia`, `session`, `sessionTtlMinutes` / `sessionTtlMs`, `maxTimeout`, `returnOnlyCookies`, `waitInSeconds`, `concurrency`
+- Browser pool (`closeBrowserPool`) and FlareSolverr sessions (`destroyFlareSolverrSession`)
+- FlareSolverr `request.post` + `postData`, `returnScreenshot`, jar cookies, proxy userinfo on `sessions.create`
+
+**Migrate a custom solver**
+
+```js
+// 1.x (void)
+async function solve({ url, cookieJar }) {
+    const cookies = await browserGetCookies(url);
+    await setCookiesOnJar(cookieJar, url, cookies);
+}
+
+// 2.x
+async function solve({ url, cookieJar }) {
+    const { cookies, userAgent, html } = await browserSolve(url);
+    return { cookies, userAgent, body: html, status: 200 };
+}
+```
+
+---
+
+Historical notes below are from the original [cloudscraper](https://github.com/codemanki/cloudscraper) project.
+
 ### 4.6.0 (12/02/2020)
+
 
 - Replace &amp; in url with `&`
 

@@ -1,7 +1,7 @@
 /**
  * Test server for CloudScraper-TS.
  * Serves test/index.html and exposes POST /fetch to run cloudscraper against a URL.
- * Run: node test/server.js  (or npm run test:server)
+ * Run: node test/server.js  (or pnpm test:server)
  * Then open http://localhost:8765 in a browser.
  *
  * One-shot CLI: node test/server.js run [url]

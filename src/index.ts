@@ -1,79 +1,28 @@
 import { CookieJar } from "tough-cookie";
-import crypto from "crypto";
-import { deprecate } from "util";
-
-interface GotRequestOptions {
-    method?: string;
-    headers?: Record<string, string>;
-    cookieJar?: CookieJar;
-    followRedirect?: boolean;
-    decompress?: boolean;
-    responseType?: string;
-    throwHttpErrors?: boolean;
-    /** got@15 defaults this to true; disable for Cloudflare challenge bodies. */
-    strictContentLength?: boolean;
-    https?: { ciphers?: string };
-    searchParams?: Record<string, string>;
-    form?: Record<string, string>;
-    json?: unknown;
-    timeout?: { request?: number };
-    retry?: { limit?: number };
-}
-
-interface GotResponse {
-    url: string;
-    headers: Record<string, string | string[] | undefined>;
-    statusCode: number;
-    /** got@15 returns Uint8Array for responseType: "buffer". */
-    body: Buffer | Uint8Array | string;
-}
-
-/** Got is ESM-only; we load it at runtime to keep this package CommonJS. */
-type GotInstance = (url: string, options?: GotRequestOptions) => Promise<GotResponse>;
-let gotPromise: Promise<GotInstance> | null = null;
-async function loadGot(): Promise<GotInstance> {
-    if (!gotPromise) {
-        gotPromise = import("got").then((m) => (m.default as GotInstance));
-    }
-    return gotPromise;
-}
-
-function toBuffer(body: Buffer | Uint8Array | string): Buffer {
-    if (Buffer.isBuffer(body)) return body;
-    if (body instanceof Uint8Array) {
-        return Buffer.from(body.buffer, body.byteOffset, body.byteLength);
-    }
-    return Buffer.from(String(body));
-}
-
-import { evaluate, Context } from "./lib/sandbox";
 import decodeEmails from "./lib/email-decode";
-import { getDefaultHeaders, caseless } from "./lib/headers";
-import brotli from "./lib/brotli";
-import {
-    CaptchaError,
-    CloudflareError,
-    OrchestrateChallengeError,
-    ParserError,
-    RequestError,
-} from "./errors";
+import { caseless, DEFAULT_HEADERS } from "./lib/caseless";
+import { extractSucuriCookie, isAccessDeniedPage, isOrchestrateChallenge, isSucuriRedirect, shouldHandleChallenge } from "./lib/detect";
+import { dumpOnSolverFailure } from "./lib/debug-dump";
+import { isDebugShimEnabled, log, Logger, setDebugShim } from "./lib/logger";
+import { setCookiesOnJar } from "./lib/cookies";
+import { isSolverResult, OrchestrateChallengeContext, SolverResult } from "./lib/solver-types";
+import { AccessDeniedError, CloudflareError, FlareSolverrError, OrchestrateChallengeError, OrchestrateLoopError, ParserError, RequestError } from "./errors";
+import { Requester, TransportRequestOpts } from "./transport";
+import { resolveTransport } from "./transports/resolve";
 
-/** Context passed to solveOrchestrateChallenge when the "Just a moment..." page is encountered. */
-export interface OrchestrateChallengeContext {
-    /** URL that returned the challenge (visit this in a browser to obtain cookies). */
-    url: string;
-    /** Response headers and status. */
-    response: ResponseLike;
-    /** Raw HTML body of the challenge page. */
-    body: string;
-    /** Cookie jar to set cf_clearance (and other cookies) on; then the library will retry. */
-    cookieJar: CookieJar;
-}
+export type { Logger } from "./lib/logger";
+export type { CookieForJar, OrchestrateChallengeContext, OrchestrateSolverFn, SolverOptions, SolverResult } from "./lib/solver-types";
+export type { Requester, Transport, TransportRequestOpts, TransportResponse } from "./transport";
+export { isAccessDeniedPage, isOrchestrateChallenge, isSucuriRedirect, extractSucuriCookie, shouldHandleChallenge } from "./lib/detect";
+export { setCookiesOnJar } from "./lib/cookies";
+export { createPatchrightOrchestrateSolver, createPlaywrightOrchestrateSolver } from "./solvers/chromium";
+export { createBrowserlessOrchestrateSolver, createPuppeteerOrchestrateSolver } from "./solvers/puppeteer";
+export { createFlareSolverrOrchestrateSolver, destroyFlareSolverrSession } from "./solvers/flaresolverr";
+export { createDefaultOrchestrateSolver } from "./solvers/default";
+export { closeBrowserPool } from "./browser-pool";
 
-let debugging = false;
 const HOST = "__CLOUDSCRAPER_HOST__";
 
-/** Request options compatible with the previous request-based API */
 export interface Options {
     uri?: string;
     url?: string;
@@ -86,46 +35,50 @@ export interface Options {
     encoding?: string | null;
     baseUrl?: string;
     prefixUrl?: string;
+    timeout?: number;
+    retry?: number;
     [key: string]: unknown;
 }
 
 export interface DefaultParams {
-    requester?: GotInstance;
+    requester?: Requester;
     jar?: CookieJar;
     cookieJar?: CookieJar;
     headers?: Record<string, string>;
-    cloudflareMaxTimeout?: number;
     followAllRedirects?: boolean;
     followRedirect?: boolean;
     challengesToSolve?: number;
     decodeEmails?: boolean;
     gzip?: boolean;
     decompress?: boolean;
-    agentOptions?: { ciphers?: string };
-    https?: { ciphers?: string };
-    /** Per-request timeout in milliseconds (passed to the underlying HTTP client). */
     timeout?: number;
-    /** Number of low-level HTTP retries the underlying client should attempt (default 0). */
     retry?: number;
+    logger?: Logger;
+    debugDir?: string;
+    /** Proxy URL for the HTTP transport and browser solvers (http, https, socks4, socks5). */
+    proxy?: string;
+    /** impit browser profile, e.g. "chrome" or "chrome151". */
+    impersonate?: string;
     /**
      * When Cloudflare returns the "Just a moment..." (orchestrate) challenge, call this with the
-     * challenge URL and cookie jar. Use a headless browser (e.g. Puppeteer/Playwright) to open
-     * the URL, let the challenge complete, then set the resulting cookies on cookieJar.
-     * The library will then retry the original request with the new cookies.
+     * challenge URL and cookie jar. Prefer returning SolverResult (cookies + userAgent + optional body).
+     * A void return is still accepted: mutate cookieJar and the library will retry.
      */
-    solveOrchestrateChallenge?: (context: OrchestrateChallengeContext) => Promise<void>;
+    solveOrchestrateChallenge?: (context: OrchestrateChallengeContext) => Promise<SolverResult | void>;
 }
 
 interface InternalOptions extends Options {
     realEncoding?: string;
     challengesToSolve: number;
-    cloudflareMaxTimeout: number;
     decodeEmails: boolean;
     decompress: boolean;
     followRedirect: boolean;
     cookieJar?: CookieJar;
     headers: Record<string, string>;
-    https?: { ciphers: string };
+    logger?: Logger;
+    debugDir?: string;
+    proxy?: string;
+    impersonate?: string;
 }
 
 interface ResponseLike {
@@ -136,8 +89,6 @@ interface ResponseLike {
     responseStartTime?: number;
     isCloudflare?: boolean;
     isHTML?: boolean;
-    isCaptcha?: boolean;
-    challenge?: string;
 }
 
 function normalizeUrl(opts: Options): string {
@@ -149,77 +100,58 @@ function normalizeUrl(opts: Options): string {
     return base ? new URL(url, base.endsWith("/") ? base : base + "/").href : url;
 }
 
-function buildGotOptions(
-    params: DefaultParams | undefined,
-    opts: InternalOptions,
-): { url: string; options: GotRequestOptions } {
+function normalizeRequestHeaders(headers: Record<string, string>, url: string): Record<string, string> {
+    const out: Record<string, string> = {};
+    for (const [key, value] of Object.entries(headers)) {
+        out[key.toLowerCase()] = value;
+    }
+    try {
+        out.host = new URL(url).host;
+    } catch {
+        delete out.host;
+    }
+    return out;
+}
+
+function lowercaseHeaders(headers: Record<string, string>): Record<string, string> {
+    const out: Record<string, string> = {};
+    for (const [key, value] of Object.entries(headers)) {
+        out[key.toLowerCase()] = value;
+    }
+    return out;
+}
+
+function buildTransportRequest(params: DefaultParams | undefined, opts: InternalOptions): { url: string; transportOpts: TransportRequestOpts } {
     const url = normalizeUrl(opts);
-    const cookieJar = opts.cookieJar ?? params?.cookieJar ?? params?.jar ?? new CookieJar();
-    const headers = { ...opts.headers };
-    if (headers.Host === HOST) {
-        try {
-            const u = new URL(url);
-            headers.host = u.host;
-        } catch {
-            delete headers.Host;
-        }
-    }
-
-    const gotOpts: GotRequestOptions = {
-        method: (opts.method as "GET" | "POST" | "HEAD" | "PUT" | "DELETE") ?? "GET",
+    const headers = normalizeRequestHeaders({ ...opts.headers }, url);
+    const timeout = opts.timeout ?? params?.timeout;
+    const retry = opts.retry ?? params?.retry;
+    const transportOpts: TransportRequestOpts = {
+        method: (opts.method as string) ?? "GET",
         headers,
-        cookieJar,
         followRedirect: opts.followRedirect !== false,
-        decompress: opts.decompress !== false,
-        responseType: "buffer",
-        throwHttpErrors: false,
-        // Cloudflare challenge responses can mismatch Content-Length after transforms.
-        strictContentLength: false,
-        https: opts.https ?? (params?.agentOptions?.ciphers
-            ? { ciphers: params.agentOptions.ciphers }
-            : {
-                  ciphers:
-                      crypto.constants.defaultCipherList +
-                      ":!ECDHE+SHA:!AES128-SHA",
-              }),
+        timeout,
+        retry,
     };
-
-    const timeout = (opts as { timeout?: number }).timeout ?? params?.timeout;
-    if (typeof timeout === "number" && timeout > 0) {
-        gotOpts.timeout = { request: timeout };
-    }
-    const retry = (opts as { retry?: number }).retry ?? params?.retry;
-    gotOpts.retry = { limit: typeof retry === "number" && retry >= 0 ? retry : 0 };
-
     if (opts.qs && Object.keys(opts.qs).length > 0) {
-        gotOpts.searchParams = opts.qs as Record<string, string>;
+        transportOpts.searchParams = opts.qs as Record<string, string>;
     }
     const form = opts.form ?? opts.formData;
     if (form && Object.keys(form).length > 0) {
-        gotOpts.form = form as Record<string, string>;
-    }
-    if (opts.json === true) {
-        gotOpts.responseType = "buffer";
+        transportOpts.form = form as Record<string, string>;
     }
     if (typeof opts.json === "object") {
-        gotOpts.json = opts.json;
-        gotOpts.responseType = "buffer";
+        transportOpts.json = opts.json;
     }
-
-    return { url, options: gotOpts };
+    return { url, transportOpts };
 }
 
-function buildResponse(gotResponse: {
-    url: string;
-    headers: Record<string, string | string[] | undefined>;
-    statusCode: number;
-    body: Buffer | Uint8Array | string;
-}): ResponseLike {
-    const requestUrl = new URL(gotResponse.url);
+function buildResponse(raw: { url: string; headers: Record<string, string | string[] | undefined>; statusCode: number; body: Buffer }): ResponseLike {
+    const requestUrl = new URL(raw.url);
     return {
-        headers: gotResponse.headers,
-        statusCode: gotResponse.statusCode,
-        body: toBuffer(gotResponse.body),
+        headers: raw.headers,
+        statusCode: raw.statusCode,
+        body: raw.body,
         request: {
             uri: {
                 href: requestUrl.href,
@@ -232,22 +164,28 @@ function buildResponse(gotResponse: {
     };
 }
 
-async function performRequest(
-    options: InternalOptions,
-    params: DefaultParams | undefined,
-    isFirstRequest: boolean,
-): Promise<{ response: ResponseLike; body: Buffer | string }> {
-    const merged = buildGotOptions(params, options);
+async function performRequest(options: InternalOptions, params: DefaultParams | undefined): Promise<{ response: ResponseLike; body: Buffer | string }> {
+    const merged = buildTransportRequest(params, options);
+    const cookieJar = options.cookieJar ?? params?.cookieJar ?? params?.jar ?? new CookieJar();
+    const transport = await resolveTransport(
+        {
+            requester: params?.requester,
+            impersonate: params?.impersonate ?? options.impersonate,
+            proxy: params?.proxy ?? options.proxy,
+            timeout: merged.transportOpts.timeout,
+            followRedirect: options.followRedirect,
+        },
+        cookieJar,
+    );
 
-    const requester = params?.requester ?? (await loadGot());
     let raw: { url: string; headers: Record<string, string | string[] | undefined>; statusCode: number; body: Buffer };
     try {
-        const res: GotResponse = await requester(merged.url, merged.options);
+        const res = await transport.request(merged.url, merged.transportOpts);
         raw = {
             url: res.url,
-            headers: res.headers as Record<string, string | string[] | undefined>,
-            statusCode: res.statusCode,
-            body: toBuffer(res.body),
+            headers: res.headers,
+            statusCode: res.status,
+            body: res.body,
         };
     } catch (err: unknown) {
         throw new RequestError(err, options, undefined);
@@ -255,48 +193,19 @@ async function performRequest(
 
     const response = buildResponse(raw);
     response.responseStartTime = Date.now();
-    const headersCaseless = caseless(response.headers as Record<string, string>);
-    response.isCloudflare = /^(cloudflare|sucuri)/i.test(String(headersCaseless.server ?? ""));
+    const headersCaseless = caseless(response.headers);
+    response.isCloudflare = /^(cloudflare|sucuri|ddos-guard)/i.test(String(headersCaseless.server ?? ""));
     response.isHTML = /text\/html/i.test(String(headersCaseless["content-type"] ?? ""));
 
-    let body: Buffer = response.body as Buffer;
-
-    if (/\bbr\b/i.test(String(headersCaseless["content-encoding"]))) {
-        if (!brotli.isAvailable) {
-            throw new RequestError(
-                "Received a Brotli compressed response. Please install brotli",
-                options,
-                response,
-            );
-        }
-        try {
-            body = brotli.decompress!(body);
-            response.body = body;
-        } catch (err: unknown) {
-            throw new RequestError(err, options, response);
-        }
-        if (options.json) {
-            try {
-                const parsed = JSON.parse(body.toString());
-                response.body = parsed;
-                return onRequestComplete(options, response, parsed);
-            } catch {
-                // fall through to HTML/challenge handling
-            }
-        }
-    }
-
-    if (response.isCloudflare && response.isHTML) {
+    const body: Buffer = response.body as Buffer;
+    const stringBody = body.toString("utf8");
+    if (shouldHandleChallenge({ headers: response.headers, statusCode: response.statusCode }, stringBody)) {
         return onCloudflareResponse(options, params, response, body);
     }
     return onRequestComplete(options, response, body);
 }
 
-function onRequestComplete(
-    options: InternalOptions,
-    response: ResponseLike,
-    body: Buffer | string | unknown,
-): Promise<{ response: ResponseLike; body: Buffer | string }> {
+function onRequestComplete(options: InternalOptions, response: ResponseLike, body: Buffer | string | unknown): Promise<{ response: ResponseLike; body: Buffer | string }> {
     const encoding = (options.realEncoding ?? "utf8") as BufferEncoding;
     if (typeof encoding === "string" && typeof body !== "string") {
         const str = Buffer.isBuffer(body) ? body.toString(encoding) : String(body);
@@ -310,376 +219,159 @@ function onRequestComplete(
     return Promise.resolve({ response, body: body as Buffer | string });
 }
 
-async function onCloudflareResponse(
-    options: InternalOptions,
-    params: DefaultParams | undefined,
-    response: ResponseLike,
-    body: Buffer,
-): Promise<{ response: ResponseLike; body: Buffer | string }> {
+async function onCloudflareResponse(options: InternalOptions, params: DefaultParams | undefined, response: ResponseLike, body: Buffer): Promise<{ response: ResponseLike; body: Buffer | string }> {
     if (body.length < 1) {
         throw new CloudflareError(response.statusCode, options, response);
     }
     const stringBody = body.toString();
-
-    try {
-        validateResponse(options, response, stringBody);
-    } catch (err: unknown) {
-        if (err instanceof CaptchaError && typeof options.onCaptcha === "function") {
-            return onCaptcha(options, params, response, stringBody);
-        }
-        throw err;
+    if (isAccessDeniedPage(stringBody)) {
+        throw new AccessDeniedError(options, response);
     }
+    validateResponse(options, response, stringBody);
 
     if (isOrchestrateChallenge(response, stringBody)) {
         return onOrchestrateChallenge(options, params, response, stringBody);
     }
-
-    const isChallenge =
-        stringBody.indexOf("a = document.getElementById('jschl-answer');") !== -1;
-    if (isChallenge) {
-        return onChallenge(options, params, response, stringBody);
-    }
-
-    const isRedirectChallenge =
-        stringBody.indexOf("You are being redirected") !== -1 ||
-        stringBody.indexOf("sucuri_cloudproxy_js") !== -1;
-    if (isRedirectChallenge) {
+    if (isSucuriRedirect(stringBody)) {
         return onRedirectChallenge(options, params, response, stringBody);
     }
-
-    if (response.statusCode === 503) {
-        return onChallenge(options, params, response, stringBody);
-    }
-
     return onRequestComplete(options, response, body);
 }
 
-/**
- * Detects Cloudflare's "Just a moment..." / orchestrate challenge page.
- * This page loads a script from challenge-platform and requires a real browser to solve.
- */
-function isOrchestrateChallenge(response: ResponseLike, body: string): boolean {
-    const hasJustAMoment =
-        body.indexOf("Just a moment") !== -1 ||
-        /<title[^>]*>[\s\S]*Just a moment[\s\S]*<\/title>/i.test(body);
-    const hasOrchestrate =
-        body.indexOf("_cf_chl_opt") !== -1 ||
-        body.indexOf("challenge-platform") !== -1 ||
-        body.indexOf("cdn-cgi/challenge-platform") !== -1;
-    const hasCfMitigated =
-        caseless(response.headers as Record<string, string>)["cf-mitigated"] === "challenge";
-    const hasOldIuam = body.indexOf("a = document.getElementById('jschl-answer');") !== -1;
-    return (hasCfMitigated || (hasJustAMoment && hasOrchestrate)) && !hasOldIuam;
+function encodePostData(opts: InternalOptions): string | undefined {
+    const form = opts.form ?? opts.formData;
+    if (form && Object.keys(form).length > 0) {
+        const sp = new URLSearchParams();
+        for (const [k, v] of Object.entries(form)) {
+            sp.append(k, String(v));
+        }
+        return sp.toString();
+    }
+    if (typeof opts.json === "object" && opts.json !== null) {
+        const sp = new URLSearchParams();
+        for (const [k, v] of Object.entries(opts.json as Record<string, unknown>)) {
+            if (v === undefined) continue;
+            sp.append(k, typeof v === "object" ? JSON.stringify(v) : String(v));
+        }
+        return sp.toString();
+    }
+    return undefined;
 }
 
-async function onOrchestrateChallenge(
-    options: InternalOptions,
-    params: DefaultParams | undefined,
-    response: ResponseLike,
-    body: string,
-): Promise<{ response: ResponseLike; body: Buffer | string }> {
-    const url = response.request?.uri?.href ?? normalizeUrl(options);
-    const cookieJar =
-        options.cookieJar ?? params?.cookieJar ?? params?.jar ?? new CookieJar();
-
-    const solver = params?.solveOrchestrateChallenge;
-    if (typeof solver !== "function") {
-        throw new OrchestrateChallengeError(options, response);
-    }
-
-    if (debugging) {
-        console.warn("Cloudflare orchestrate challenge detected. Calling solveOrchestrateChallenge...");
-    }
-    await solver({ url, response, body, cookieJar });
-
-    const newOptions: InternalOptions = {
-        ...options,
-        cookieJar,
-    };
-    return performRequest(newOptions, params, false);
-}
-
-function detectRecaptchaVersion(body: string): "ver1" | "ver2" | false {
-    if (/__cf_chl_captcha_tk__=(.*)/i.test(body)) return "ver2";
-    if (body.indexOf("why_captcha") !== -1 || /cdn-cgi\/l\/chk_captcha/i.test(body)) return "ver1";
-    return false;
-}
-
-function validateResponse(
-    _options: InternalOptions,
-    response: ResponseLike,
-    body: string,
-): void {
-    const recaptchaVer = detectRecaptchaVersion(body);
-    if (recaptchaVer) {
-        response.isCaptcha = true;
-        throw new CaptchaError("captcha", _options, response);
-    }
+function validateResponse(_options: InternalOptions, response: ResponseLike, body: string): void {
     const match = body.match(/<\w+\s+class="cf-error-code">(.*)<\/\w+>/i);
     if (match) {
         throw new CloudflareError(parseInt(match[1], 10), _options, response);
     }
 }
 
-async function onChallenge(
-    options: InternalOptions,
-    params: DefaultParams | undefined,
-    response: ResponseLike,
-    body: string,
-): Promise<{ response: ResponseLike; body: Buffer | string }> {
-    const uri = response.request!.uri;
-    const payload: Record<string, string | number> = {};
+async function onOrchestrateChallenge(options: InternalOptions, params: DefaultParams | undefined, response: ResponseLike, body: string): Promise<{ response: ResponseLike; body: Buffer | string }> {
+    if (options.challengesToSolve <= 0) {
+        throw new OrchestrateLoopError(options, response);
+    }
+    const url = response.request?.uri?.href ?? normalizeUrl(options);
+    const cookieJar = options.cookieJar ?? params?.cookieJar ?? params?.jar ?? new CookieJar();
+    const solver = params?.solveOrchestrateChallenge;
+    if (typeof solver !== "function") {
+        throw new OrchestrateChallengeError(options, response);
+    }
 
-    if (options.challengesToSolve === 0) {
-        const err = new CloudflareError("Cloudflare challenge loop", options, response);
-        (err as { errorType?: number }).errorType = 4;
+    const context: OrchestrateChallengeContext = {
+        url,
+        response,
+        body,
+        cookieJar,
+        debugDir: options.debugDir ?? params?.debugDir,
+        logger: options.logger ?? params?.logger,
+        proxy: params?.proxy ?? options.proxy,
+        impersonate: params?.impersonate ?? options.impersonate,
+        timeout: options.timeout ?? params?.timeout,
+        method: String(options.method ?? "GET").toUpperCase(),
+        postData: encodePostData(options),
+    };
+    log(context.logger, "warn", "Cloudflare orchestrate challenge detected. Calling solveOrchestrateChallenge...");
+
+    let result: SolverResult | void;
+    try {
+        result = await solver(context);
+    } catch (err) {
+        const extra: Record<string, string | Buffer | undefined> = {};
+        if (err instanceof FlareSolverrError && err.screenshot) {
+            extra["screenshot.png"] = Buffer.from(err.screenshot, "base64");
+        }
+        await dumpOnSolverFailure(context, err, extra);
         throw err;
     }
 
-    let timeout = parseInt((options as { cloudflareTimeout?: string }).cloudflareTimeout as string, 10);
-    let match = body.match(/name="(.+?)" value="(.+?)"/);
-    if (match) {
-        payload[match[1]] = match[2];
-    }
-    match = body.match(/name="jschl_vc" value="(\w+)"/);
-    if (!match) throw new ParserError("challengeId (jschl_vc) extraction failed", options, response);
-    payload.jschl_vc = match[1];
+    const newOptions: InternalOptions = {
+        ...options,
+        cookieJar,
+        challengesToSolve: options.challengesToSolve - 1,
+        headers: lowercaseHeaders(options.headers),
+    };
 
-    match = body.match(/name="pass" value="(.+?)"/);
-    if (!match) throw new ParserError("Attribute (pass) value extraction failed", options, response);
-    payload.pass = match[1];
-
-    match = body.match(
-        /getElementById\('cf-content'\)[\s\S]+?setTimeout.+?\r?\n([\s\S]+?a\.value\s*=.+?)\r?\n(?:[^{<>]*},\s*(\d{4,}))?/,
-    );
-    if (!match) throw new ParserError("setTimeout callback extraction failed", options, response);
-
-    if (isNaN(timeout)) {
-        if (match[2] !== undefined) {
-            timeout = parseInt(match[2], 10);
-            if (timeout > options.cloudflareMaxTimeout) {
-                if (debugging) {
-                    console.warn("Cloudflare's timeout is excessive: " + timeout / 1000 + "s");
+    if (isSolverResult(result)) {
+        newOptions.headers["user-agent"] = result.userAgent;
+        if (result.cookies?.length) {
+            await setCookiesOnJar(cookieJar, url, result.cookies);
+        }
+        const method = String(options.method ?? "GET").toUpperCase();
+        if (result.body != null && method === "GET") {
+            let requestUri = response.request;
+            if (result.url) {
+                try {
+                    const u = new URL(result.url);
+                    requestUri = {
+                        uri: { href: u.href, host: u.host, hostname: u.hostname, protocol: u.protocol },
+                    };
+                } catch {
+                    /* keep original */
                 }
-                timeout = options.cloudflareMaxTimeout;
             }
-        } else {
-            throw new ParserError("Failed to parse challenge timeout", options, response);
+            const synth: ResponseLike = {
+                headers: result.headers ?? { "content-type": "text/html" },
+                statusCode: result.status ?? 200,
+                body: Buffer.from(result.body),
+                request: requestUri,
+                isHTML: true,
+                responseStartTime: Date.now(),
+            };
+            return onRequestComplete(newOptions, synth, Buffer.from(result.body));
         }
     }
 
-    response.challenge = match[1] + "; a.value";
-    try {
-        const ctx = new Context({ hostname: uri.hostname, body });
-        payload.jschl_answer = evaluate(response.challenge!, ctx);
-    } catch (err: unknown) {
-        const e = err instanceof Error ? err : new Error(String(err));
-        e.message = "Challenge evaluation failed: " + e.message;
-        throw new ParserError(e, options, response);
-    }
-
-    if (isNaN(payload.jschl_answer as number)) {
-        throw new ParserError("Challenge answer is not a number", options, response);
-    }
-
-    const newOptions: InternalOptions = {
-        ...options,
-        headers: { ...options.headers, Referer: uri.href },
-        challengesToSolve: options.challengesToSolve - 1,
-    };
-
-    match = body.match(/id="challenge-form" action="(.+?)" method="(.+?)"/);
-    if (match?.[2] === "POST") {
-        newOptions.uri = uri.protocol + "//" + uri.host + match[1];
-        newOptions.form = payload as Record<string, string>;
-        newOptions.method = "POST";
-        delete newOptions.qs;
-    } else {
-        newOptions.uri = uri.protocol + "//" + uri.host + "/cdn-cgi/l/chk_jschl";
-        newOptions.qs = payload;
-        delete newOptions.form;
-    }
-    newOptions.uri = newOptions.uri!.replace(/&amp;/g, "&");
-    delete newOptions.baseUrl;
-    delete newOptions.prefixUrl;
-
-    const delay = Math.max(0, timeout - (Date.now() - (response.responseStartTime ?? 0)));
-    await new Promise((r) => setTimeout(r, delay));
-    return performRequest(newOptions, params, false);
+    return performRequest(newOptions, params);
 }
 
-async function onCaptcha(
-    options: InternalOptions,
-    params: DefaultParams | undefined,
-    response: ResponseLike & { captcha?: object; rayId?: string; request?: { uri: { href: string; host: string; protocol: string } } },
-    body: string,
-): Promise<{ response: ResponseLike; body: Buffer | string }> {
-    const recaptchaVer = detectRecaptchaVersion(body);
-    const isRecaptchaVer2 = recaptchaVer === "ver2";
-    const handler = options.onCaptcha as ((opts: unknown, res: unknown, b: string) => void | Promise<unknown>) | undefined;
-    const payload: Record<string, string> = {};
-
-    let match = body.match(/<form(?: [^<>]*)? id=["']?challenge-form['"]?(?: [^<>]*)?>([\S\s]*?)<\/form>/);
-    if (!match) throw new ParserError("Challenge form extraction failed", options, response);
-    const form = match[1];
-
-    let siteKey: string | undefined;
-    let rayId: string | undefined;
-    if (isRecaptchaVer2) {
-        match = body.match(/\sdata-ray=["']?([^\s"'<>&]+)/);
-        if (!match) throw new ParserError("Unable to find cloudflare ray id", options, response);
-        rayId = match[1];
-    }
-
-    match = body.match(/\sdata-sitekey=["']?([^\s"'<>&]+)/);
-    if (match) {
-        siteKey = match[1];
-    } else {
-        const keys: string[] = [];
-        const re = /\/recaptcha\/api2?\/(?:fallback|anchor|bframe)\?(?:[^\s<>]+&(?:amp;)?)?[Kk]=["']?([^\s"'<>&]+)/g;
-        let m: RegExpExecArray | null;
-        while ((m = re.exec(body)) !== null) {
-            if (m[0].indexOf("fallback") !== -1) keys.unshift(m[1]);
-            else keys.push(m[1]);
-        }
-        siteKey = keys[0];
-        if (!siteKey) throw new ParserError("Unable to find the reCAPTCHA site key", options, response);
-        if (debugging) console.warn("Failed to find data-sitekey, using a fallback:", keys);
-    }
-
-    response.captcha = {
-        siteKey,
-        uri: response.request!.uri,
-        form: payload,
-        version: recaptchaVer,
-    };
-    if (isRecaptchaVer2) {
-        response.rayId = rayId;
-        match = body.match(/id="challenge-form" action="(.+?)" method="(.+?)"/);
-        if (!match) throw new ParserError("Challenge form action and method extraction failed", options, response);
-        (response.captcha as Record<string, string>).formMethod = match[2];
-        const actionMatch = match[1].match(/\/(.*)/);
-        (response.captcha as Record<string, string>).formActionUri = actionMatch?.[0] ?? "";
-        payload.id = rayId!;
-    }
-
-    Object.defineProperty(response.captcha, "url", {
-        configurable: true,
-        enumerable: false,
-        get: deprecate(() => response.request!.uri.href, "captcha.url is deprecated. Please use captcha.uri instead."),
-    });
-
-    const inputs = form.match(/<input(?: [^<>]*)? name=[^<>]+>/g);
-    if (!inputs) throw new ParserError("Challenge form is missing inputs", options, response);
-    for (const input of inputs) {
-        const nameMatch = input.match(/name=["']?([^\s"'<>]*)/);
-        if (nameMatch) {
-            const valueMatch = input.match(/value=["']?([^\s"'<>]*)/);
-            if (valueMatch) payload[nameMatch[1]] = valueMatch[1];
-        }
-    }
-    if (!payload.s && !payload.r) {
-        throw new ParserError("Challenge form is missing secret input", options, response);
-    }
-    if (debugging) console.warn("Captcha:", response.captcha);
-
-    return new Promise((resolve, reject) => {
-        const submit = (error?: Error) => {
-            if (error) {
-                reject(new CaptchaError(error, options, response));
-                return;
-            }
-            onSubmitCaptcha(options, params, response as ResponseLike & { captcha: { form: Record<string, string>; formActionUri?: string; formMethod?: string }; request?: { uri: { href: string; host: string; protocol: string } } }).then(resolve).catch(reject);
-        };
-        (response.captcha as { submit?: (err?: Error) => void }).submit = submit;
-        const thenable = handler?.(options, response, body);
-        if (thenable && typeof (thenable as Promise<unknown>)?.then === "function") {
-            (thenable as Promise<unknown>).then(
-                () => submit(),
-                (err: unknown) => submit(err instanceof Error ? err : new Error(String(err))),
-            );
-        }
-    });
-}
-
-async function onSubmitCaptcha(
-    options: InternalOptions,
-    params: DefaultParams | undefined,
-    response: ResponseLike & { captcha: { form: Record<string, string>; formActionUri?: string; formMethod?: string }; request?: { uri: { href: string; host: string; protocol: string } } },
-): Promise<{ response: ResponseLike; body: Buffer | string }> {
-    if (!response.captcha.form["g-recaptcha-response"]) {
-        throw new CaptchaError("Form submission without g-recaptcha-response", options, response);
-    }
+async function onRedirectChallenge(options: InternalOptions, params: DefaultParams | undefined, response: ResponseLike, body: string): Promise<{ response: ResponseLike; body: Buffer | string }> {
     const uri = response.request!.uri;
-    const isRecaptchaVer2 = (response.captcha as { version?: string }).version === "ver2";
-
-    const newOptions: InternalOptions = {
-        ...options,
-        headers: { ...options.headers, Referer: uri.href },
-    };
-    if (isRecaptchaVer2) {
-        newOptions.qs = {
-            __cf_chl_captcha_tk__: response.captcha.formActionUri?.match(/__cf_chl_captcha_tk__=(.*)/)?.[1],
-        };
-        newOptions.form = response.captcha.form;
-    } else {
-        newOptions.qs = response.captcha.form;
+    const cookieStr = extractSucuriCookie(body);
+    if (!cookieStr) {
+        throw new ParserError("Cookie code extraction failed", options, response);
     }
-    newOptions.method = (response.captcha as { formMethod?: string }).formMethod || "GET";
-    newOptions.uri =
-        uri.protocol + "//" + uri.host + (isRecaptchaVer2 ? response.captcha.formActionUri! : "/cdn-cgi/l/chk_captcha");
-
-    return performRequest(newOptions, params, false);
-}
-
-async function onRedirectChallenge(
-    options: InternalOptions,
-    params: DefaultParams | undefined,
-    response: ResponseLike & { challenge?: string; request?: { uri: { href: string } } },
-    body: string,
-): Promise<{ response: ResponseLike; body: Buffer | string }> {
-    const uri = response.request!.uri;
-    const match = body.match(/S='([^']+)'/);
-    if (!match) throw new ParserError("Cookie code extraction failed", options, response);
-
-    response.challenge = Buffer.from(match[1], "base64").toString("ascii");
-    try {
-        const ctx = new Context();
-        evaluate(response.challenge!, ctx);
-        const jar = options.cookieJar ?? params?.cookieJar ?? params?.jar;
-        const cookieStr = (ctx as unknown as { options?: { document?: { cookie?: string } } }).options?.document?.cookie;
-        if (jar && cookieStr) {
-            await jar.setCookie(cookieStr, uri.href, { ignoreError: true });
-        }
-    } catch (err: unknown) {
-        const e = err instanceof Error ? err : new Error(String(err));
-        e.message = "Cookie code evaluation failed: " + e.message;
-        throw new ParserError(e, options, response);
+    const jar = options.cookieJar ?? params?.cookieJar ?? params?.jar;
+    if (jar) {
+        await jar.setCookie(cookieStr, uri.href, { ignoreError: true });
     }
-
     const newOptions: InternalOptions = {
         ...options,
         challengesToSolve: options.challengesToSolve - 1,
     };
-    return performRequest(newOptions, params, false);
+    return performRequest(newOptions, params);
 }
 
-async function request(
-    options?: Options,
-    params?: DefaultParams,
-    retries = 0,
-): Promise<{ body: Buffer | string; [key: string]: unknown }> {
+async function request(options?: Options, params?: DefaultParams, retries = 0): Promise<{ body: Buffer | string; [key: string]: unknown }> {
     const defaultParams: DefaultParams = {
         cookieJar: params?.cookieJar ?? params?.jar ?? new CookieJar(),
-        headers: params?.headers ?? getDefaultHeaders({ Host: HOST }),
-        cloudflareMaxTimeout: params?.cloudflareMaxTimeout ?? 30000,
+        headers: params?.headers ?? { ...DEFAULT_HEADERS, Host: HOST },
         followRedirect: params?.followAllRedirects !== false,
         challengesToSolve: params?.challengesToSolve ?? 3,
         decodeEmails: params?.decodeEmails === true,
         decompress: params?.gzip !== false && params?.decompress !== false,
-        https: params?.agentOptions?.ciphers
-            ? { ciphers: params.agentOptions.ciphers }
-            : { ciphers: crypto.constants.defaultCipherList + ":!ECDHE+SHA:!AES128-SHA" },
+        logger: params?.logger,
+        debugDir: params?.debugDir,
+        proxy: params?.proxy,
+        impersonate: params?.impersonate,
     };
     Object.assign(defaultParams, params);
 
@@ -688,26 +380,28 @@ async function request(
         ...options,
         realEncoding: (options?.encoding as string) ?? "utf8",
         challengesToSolve: defaultParams.challengesToSolve ?? 3,
-        cloudflareMaxTimeout: defaultParams.cloudflareMaxTimeout ?? 30000,
         decodeEmails: defaultParams.decodeEmails ?? false,
         decompress: defaultParams.decompress ?? true,
         followRedirect: defaultParams.followRedirect ?? true,
-        headers: (options?.headers ?? defaultParams.headers ?? getDefaultHeaders({ Host: HOST })) as Record<string, string>,
-        https: {
-            ciphers:
-                defaultParams.https?.ciphers ??
-                defaultParams.agentOptions?.ciphers ??
-                crypto.constants.defaultCipherList + ":!ECDHE+SHA:!AES128-SHA",
-        },
+        headers: (options?.headers ?? defaultParams.headers ?? { ...DEFAULT_HEADERS, Host: HOST }) as Record<string, string>,
+        logger: defaultParams.logger,
+        debugDir: defaultParams.debugDir,
+        proxy: defaultParams.proxy,
+        impersonate: defaultParams.impersonate,
+        timeout: options?.timeout ?? defaultParams.timeout,
+        retry: options?.retry ?? defaultParams.retry,
     };
 
     try {
-        const { response, body } = await performRequest(merged, defaultParams, true);
+        const { response, body } = await performRequest(merged, defaultParams);
         if (typeof merged.realEncoding === "string" && response.body !== undefined) {
             return { ...response, body: response.body };
         }
         return { ...response, body };
     } catch (err: unknown) {
+        if (err instanceof AccessDeniedError || err instanceof OrchestrateLoopError || err instanceof OrchestrateChallengeError || err instanceof ParserError || err instanceof CloudflareError || err instanceof FlareSolverrError) {
+            throw err;
+        }
         const errObj = err as { response?: { isCloudflare?: boolean } };
         const res = errObj?.response;
         if (res?.isCloudflare && retries < (params?.challengesToSolve ?? 3)) {
@@ -721,288 +415,13 @@ Object.defineProperty(request, "debug", {
     configurable: true,
     enumerable: true,
     set(value: boolean) {
-        debugging = !!value;
+        setDebugShim(!!value);
     },
     get() {
-        return debugging;
+        return isDebugShimEnabled();
     },
 });
 
-export { OrchestrateChallengeError } from "./errors";
-
-type OrchestrateSolverFn = (context: OrchestrateChallengeContext) => Promise<void>;
-
-/** Cookie shape used when setting on jar (and returned by FlareSolverr). */
-interface CookieForJar {
-    name: string;
-    value: string;
-    domain?: string;
-    path?: string;
-    expires?: number;
-    httpOnly?: boolean;
-    secure?: boolean;
-}
-
-function setCookiesOnJar(
-    cookieJar: CookieJar,
-    url: string,
-    cookies: Array<CookieForJar>,
-): Promise<void> {
-    return Promise.all(
-        cookies.map(async (c) => {
-            const parts = [`${c.name}=${c.value}`];
-            if (c.domain) parts.push(`Domain=${c.domain}`);
-            if (c.path) parts.push(`Path=${c.path}`);
-            if (c.expires) parts.push(`Expires=${new Date(c.expires * 1000).toUTCString()}`);
-            if (c.httpOnly) parts.push("HttpOnly");
-            if (c.secure) parts.push("Secure");
-            await cookieJar.setCookie(parts.join("; "), url, { ignoreError: true });
-        }),
-    ).then(() => undefined);
-}
-
-/**
- * Returns a solver for the "Just a moment..." orchestrate challenge using a FlareSolverr instance.
- * Set env FLARESOLVERR_URL (e.g. http://localhost:8191/v1) to use FlareSolverr; the default
- * solver will try this first when the variable is set.
- */
-export function createFlareSolverrOrchestrateSolver(baseUrl: string): OrchestrateSolverFn {
-    return async (context: OrchestrateChallengeContext): Promise<void> => {
-        const url = baseUrl.replace(/\/$/, "");
-        const res = await fetch(url, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                cmd: "request.get",
-                url: context.url,
-                maxTimeout: 60000,
-            }),
-        });
-        const data = (await res.json()) as {
-            status?: string;
-            message?: string;
-            solution?: { cookies?: Array<CookieForJar> };
-        };
-        if (data.status !== "ok" || !data.solution?.cookies) {
-            const msg = data.message || res.statusText || "FlareSolverr request failed";
-            throw new Error(msg);
-        }
-        await setCookiesOnJar(context.cookieJar, context.url, data.solution.cookies);
-    };
-}
-
-/**
- * Returns a solver for the "Just a moment..." orchestrate challenge using a remote
- * Browserless instance (Browsers-as-a-Service).
- *
- * This is useful on constrained platforms (e.g. free tier serverless) where running
- * a full browser locally is not practical. You still need `puppeteer-core` in the
- * consuming project, and a Browserless WebSocket endpoint.
- */
-export function createBrowserlessOrchestrateSolver(browserWSEndpoint: string): OrchestrateSolverFn {
-    return async (context: OrchestrateChallengeContext): Promise<void> => {
-        let puppeteerCore: { connect: (opts: { browserWSEndpoint: string }) => Promise<BrowserLike> };
-        try {
-            const m = await import("puppeteer-core");
-            puppeteerCore = (m.default ?? m) as typeof puppeteerCore;
-        } catch {
-            throw new Error("puppeteer-core not found. Install with: npm install puppeteer-core");
-        }
-        const browser = await puppeteerCore.connect({ browserWSEndpoint });
-        try {
-            const page = await browser.newPage();
-            await page.goto(context.url, {
-                waitUntil: "load",
-                // Browserless enforces its own timeout; this is just a safety cap.
-                timeout: 45000,
-            });
-            const cookies = await page.cookies();
-            await setCookiesOnJar(context.cookieJar, context.url, cookies);
-        } finally {
-            await browser.close();
-        }
-    };
-}
-
-/**
- * Returns a solver for the "Just a moment..." orchestrate challenge using Puppeteer.
- * Optional: install puppeteer to use. The browser will open the challenge URL,
- * run the Cloudflare script, and the resulting cookies are written to the jar.
- */
-interface BrowserLike {
-    newPage(): Promise<{
-        goto(url: string, opts?: object): Promise<unknown>;
-        cookies(): Promise<Array<{ name: string; value: string; domain?: string; path?: string; expires?: number; httpOnly?: boolean; secure?: boolean }>>;
-    }>;
-    close(): Promise<void>;
-}
-
-export function createPuppeteerOrchestrateSolver(options?: {
-    headless?: boolean;
-    timeout?: number;
-}): OrchestrateSolverFn {
-    return async (context: OrchestrateChallengeContext): Promise<void> => {
-        let puppeteer: { launch: (opts: object) => Promise<BrowserLike> };
-        try {
-            const m = await import("puppeteer");
-            puppeteer = (m.default ?? m) as typeof puppeteer;
-        } catch {
-            throw new Error("Puppeteer not found. Install with: npm install puppeteer");
-        }
-        const browser = await puppeteer.launch({
-            headless: options?.headless !== false,
-            args: ["--no-sandbox", "--disable-setuid-sandbox"],
-        });
-        try {
-            const page = await browser.newPage();
-            await page.goto(context.url, {
-                waitUntil: "load",
-                timeout: options?.timeout ?? 45000,
-            });
-            const cookies = await page.cookies();
-            await setCookiesOnJar(context.cookieJar, context.url, cookies);
-        } finally {
-            await browser.close();
-        }
-    };
-}
-
-/**
- * Returns a solver for the "Just a moment..." orchestrate challenge using Playwright.
- * Optional: install playwright to use. Lighter than Puppeteer when using playwright-core
- * with a system browser. The browser will open the challenge URL and cookies are written to the jar.
- */
-export function createPlaywrightOrchestrateSolver(options?: {
-    headless?: boolean;
-    timeout?: number;
-}): OrchestrateSolverFn {
-    return async (context: OrchestrateChallengeContext): Promise<void> => {
-        let playwright: { chromium: { launch: (opts: object) => Promise<PlaywrightBrowserLike> } };
-        try {
-            const m = await import("playwright");
-            playwright = (m.default ?? m) as typeof playwright;
-        } catch {
-            throw new Error("Playwright not found. Install with: npm install playwright");
-        }
-        const browser = await playwright.chromium.launch({
-            headless: options?.headless !== false,
-            args: ["--no-sandbox", "--disable-setuid-sandbox"],
-        });
-        try {
-            const page = await browser.newPage();
-            await page.goto(context.url, {
-                waitUntil: "load",
-                timeout: options?.timeout ?? 45000,
-            });
-            const ctx = page.context();
-            const cookies = await ctx.cookies(context.url);
-            await setCookiesOnJar(context.cookieJar, context.url, cookies);
-        } finally {
-            await browser.close();
-        }
-    };
-}
-
-interface PlaywrightBrowserLike {
-    newPage(): Promise<{
-        goto(url: string, opts?: object): Promise<unknown>;
-        context(): { cookies(url?: string): Promise<Array<{ name: string; value: string; domain?: string; path?: string; expires?: number; httpOnly?: boolean; secure?: boolean }>> };
-    }>;
-    close(): Promise<void>;
-}
-
-let defaultOrchestrateSolver: OrchestrateSolverFn | null = null;
-
-/**
- * Returns a solver that tries, in order:
- * 1. FlareSolverr (if FLARESOLVERR_URL is set)
- * 2. Browserless (if BROWSERLESS_WS_ENDPOINT is set)
- * 3. Playwright (recommended for private servers)
- * 4. Puppeteer
- *
- * All integrations are optional. If none are available, the solver throws when used.
- */
-export function createDefaultOrchestrateSolver(options?: {
-    headless?: boolean;
-    timeout?: number;
-}): OrchestrateSolverFn {
-    return async (context: OrchestrateChallengeContext): Promise<void> => {
-        if (defaultOrchestrateSolver) {
-            return defaultOrchestrateSolver(context);
-        }
-        const hasProcess = typeof process !== "undefined" && process.env;
-        if (hasProcess) {
-            const flaresolverrUrl = process.env.FLARESOLVERR_URL;
-            if (flaresolverrUrl && flaresolverrUrl.trim()) {
-                try {
-                    const solver = createFlareSolverrOrchestrateSolver(flaresolverrUrl.trim());
-                    await solver(context);
-                    defaultOrchestrateSolver = solver;
-                    return;
-                } catch (err) {
-                    if (debugging) {
-                        console.warn(
-                            "FlareSolverr solver failed, falling through:",
-                            err instanceof Error ? err.message : String(err),
-                        );
-                    }
-                }
-            }
-            const browserlessWs = process.env.BROWSERLESS_WS_ENDPOINT;
-            if (browserlessWs && browserlessWs.trim()) {
-                try {
-                    const solver = createBrowserlessOrchestrateSolver(browserlessWs.trim());
-                    await solver(context);
-                    defaultOrchestrateSolver = solver;
-                    return;
-                } catch (err) {
-                    if (debugging) {
-                        console.warn(
-                            "Browserless solver failed, falling through:",
-                            err instanceof Error ? err.message : String(err),
-                        );
-                    }
-                }
-            }
-        }
-        try {
-            const solver = createPlaywrightOrchestrateSolver(options);
-            await solver(context);
-            defaultOrchestrateSolver = solver;
-        } catch (e1) {
-            const msg1 = e1 instanceof Error ? e1.message : String(e1);
-            const playwrightMissing =
-                /Cannot find module|Module not found|Playwright not found/i.test(msg1) ||
-                (msg1.includes("Executable") && msg1.includes("does not exist"));
-            if (!playwrightMissing) {
-                throw e1;
-            }
-            try {
-                const solver = createPuppeteerOrchestrateSolver(options);
-                await solver(context);
-                defaultOrchestrateSolver = solver;
-            } catch (e2) {
-                const inner = e2 instanceof Error ? e2.message : String(e2);
-                // Only treat as "no browser" when package or executable is missing; rethrow timeouts/network errors
-                const isMissingBrowser =
-                    /Cannot find module|Module not found|puppeteer.*not found|Playwright not found/i.test(inner) ||
-                    (inner.includes("Executable") && inner.includes("does not exist")) ||
-                    /browser.*not found|could not find.*browser/i.test(inner);
-                if (!isMissingBrowser) {
-                    throw e2;
-                }
-                const hint = /Executable|browser/i.test(inner)
-                    ? " Run: npx playwright install chromium"
-                    : "";
-                throw new Error(
-                    "No headless browser available. Install one of: npm install playwright  OR  npm install puppeteer." +
-                        hint +
-                        (inner ? " (" + inner + ")" : ""),
-                    { cause: e2 },
-                );
-            }
-        }
-    };
-}
+export { AccessDeniedError, CloudflareError, FlareSolverrError, OrchestrateChallengeError, OrchestrateLoopError, ParserError, RequestError, errors } from "./errors";
 
 export default request;

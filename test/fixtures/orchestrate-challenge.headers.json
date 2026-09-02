@@ -1,0 +1,8 @@
+{
+  "statusCode": 403,
+  "headers": {
+    "server": "cloudflare",
+    "cf-mitigated": "challenge",
+    "content-type": "text/html; charset=UTF-8"
+  }
+}

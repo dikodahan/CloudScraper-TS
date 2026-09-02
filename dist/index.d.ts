@@ -1,48 +1,17 @@
 import { CookieJar } from "tough-cookie";
-interface GotRequestOptions {
-    method?: string;
-    headers?: Record<string, string>;
-    cookieJar?: CookieJar;
-    followRedirect?: boolean;
-    decompress?: boolean;
-    responseType?: string;
-    throwHttpErrors?: boolean;
-    /** got@15 defaults this to true; disable for Cloudflare challenge bodies. */
-    strictContentLength?: boolean;
-    https?: {
-        ciphers?: string;
-    };
-    searchParams?: Record<string, string>;
-    form?: Record<string, string>;
-    json?: unknown;
-    timeout?: {
-        request?: number;
-    };
-    retry?: {
-        limit?: number;
-    };
-}
-interface GotResponse {
-    url: string;
-    headers: Record<string, string | string[] | undefined>;
-    statusCode: number;
-    /** got@15 returns Uint8Array for responseType: "buffer". */
-    body: Buffer | Uint8Array | string;
-}
-/** Got is ESM-only; we load it at runtime to keep this package CommonJS. */
-type GotInstance = (url: string, options?: GotRequestOptions) => Promise<GotResponse>;
-/** Context passed to solveOrchestrateChallenge when the "Just a moment..." page is encountered. */
-export interface OrchestrateChallengeContext {
-    /** URL that returned the challenge (visit this in a browser to obtain cookies). */
-    url: string;
-    /** Response headers and status. */
-    response: ResponseLike;
-    /** Raw HTML body of the challenge page. */
-    body: string;
-    /** Cookie jar to set cf_clearance (and other cookies) on; then the library will retry. */
-    cookieJar: CookieJar;
-}
-/** Request options compatible with the previous request-based API */
+import { Logger } from "./lib/logger";
+import { OrchestrateChallengeContext, SolverResult } from "./lib/solver-types";
+import { Requester } from "./transport";
+export type { Logger } from "./lib/logger";
+export type { CookieForJar, OrchestrateChallengeContext, OrchestrateSolverFn, SolverOptions, SolverResult } from "./lib/solver-types";
+export type { Requester, Transport, TransportRequestOpts, TransportResponse } from "./transport";
+export { isAccessDeniedPage, isOrchestrateChallenge, isSucuriRedirect, extractSucuriCookie, shouldHandleChallenge } from "./lib/detect";
+export { setCookiesOnJar } from "./lib/cookies";
+export { createPatchrightOrchestrateSolver, createPlaywrightOrchestrateSolver } from "./solvers/chromium";
+export { createBrowserlessOrchestrateSolver, createPuppeteerOrchestrateSolver } from "./solvers/puppeteer";
+export { createFlareSolverrOrchestrateSolver, destroyFlareSolverrSession } from "./solvers/flaresolverr";
+export { createDefaultOrchestrateSolver } from "./solvers/default";
+export { closeBrowserPool } from "./browser-pool";
 export interface Options {
     uri?: string;
     url?: string;
@@ -55,101 +24,39 @@ export interface Options {
     encoding?: string | null;
     baseUrl?: string;
     prefixUrl?: string;
+    timeout?: number;
+    retry?: number;
     [key: string]: unknown;
 }
 export interface DefaultParams {
-    requester?: GotInstance;
+    requester?: Requester;
     jar?: CookieJar;
     cookieJar?: CookieJar;
     headers?: Record<string, string>;
-    cloudflareMaxTimeout?: number;
     followAllRedirects?: boolean;
     followRedirect?: boolean;
     challengesToSolve?: number;
     decodeEmails?: boolean;
     gzip?: boolean;
     decompress?: boolean;
-    agentOptions?: {
-        ciphers?: string;
-    };
-    https?: {
-        ciphers?: string;
-    };
-    /** Per-request timeout in milliseconds (passed to the underlying HTTP client). */
     timeout?: number;
-    /** Number of low-level HTTP retries the underlying client should attempt (default 0). */
     retry?: number;
+    logger?: Logger;
+    debugDir?: string;
+    /** Proxy URL for the HTTP transport and browser solvers (http, https, socks4, socks5). */
+    proxy?: string;
+    /** impit browser profile, e.g. "chrome" or "chrome151". */
+    impersonate?: string;
     /**
      * When Cloudflare returns the "Just a moment..." (orchestrate) challenge, call this with the
-     * challenge URL and cookie jar. Use a headless browser (e.g. Puppeteer/Playwright) to open
-     * the URL, let the challenge complete, then set the resulting cookies on cookieJar.
-     * The library will then retry the original request with the new cookies.
+     * challenge URL and cookie jar. Prefer returning SolverResult (cookies + userAgent + optional body).
+     * A void return is still accepted: mutate cookieJar and the library will retry.
      */
-    solveOrchestrateChallenge?: (context: OrchestrateChallengeContext) => Promise<void>;
-}
-interface ResponseLike {
-    headers: Record<string, string | string[] | undefined>;
-    statusCode: number;
-    body: Buffer | string;
-    request?: {
-        uri: {
-            href: string;
-            host: string;
-            hostname: string;
-            protocol: string;
-        };
-    };
-    responseStartTime?: number;
-    isCloudflare?: boolean;
-    isHTML?: boolean;
-    isCaptcha?: boolean;
-    challenge?: string;
+    solveOrchestrateChallenge?: (context: OrchestrateChallengeContext) => Promise<SolverResult | void>;
 }
 declare function request(options?: Options, params?: DefaultParams, retries?: number): Promise<{
     body: Buffer | string;
     [key: string]: unknown;
 }>;
-export { OrchestrateChallengeError } from "./errors";
-type OrchestrateSolverFn = (context: OrchestrateChallengeContext) => Promise<void>;
-/**
- * Returns a solver for the "Just a moment..." orchestrate challenge using a FlareSolverr instance.
- * Set env FLARESOLVERR_URL (e.g. http://localhost:8191/v1) to use FlareSolverr; the default
- * solver will try this first when the variable is set.
- */
-export declare function createFlareSolverrOrchestrateSolver(baseUrl: string): OrchestrateSolverFn;
-/**
- * Returns a solver for the "Just a moment..." orchestrate challenge using a remote
- * Browserless instance (Browsers-as-a-Service).
- *
- * This is useful on constrained platforms (e.g. free tier serverless) where running
- * a full browser locally is not practical. You still need `puppeteer-core` in the
- * consuming project, and a Browserless WebSocket endpoint.
- */
-export declare function createBrowserlessOrchestrateSolver(browserWSEndpoint: string): OrchestrateSolverFn;
-export declare function createPuppeteerOrchestrateSolver(options?: {
-    headless?: boolean;
-    timeout?: number;
-}): OrchestrateSolverFn;
-/**
- * Returns a solver for the "Just a moment..." orchestrate challenge using Playwright.
- * Optional: install playwright to use. Lighter than Puppeteer when using playwright-core
- * with a system browser. The browser will open the challenge URL and cookies are written to the jar.
- */
-export declare function createPlaywrightOrchestrateSolver(options?: {
-    headless?: boolean;
-    timeout?: number;
-}): OrchestrateSolverFn;
-/**
- * Returns a solver that tries, in order:
- * 1. FlareSolverr (if FLARESOLVERR_URL is set)
- * 2. Browserless (if BROWSERLESS_WS_ENDPOINT is set)
- * 3. Playwright (recommended for private servers)
- * 4. Puppeteer
- *
- * All integrations are optional. If none are available, the solver throws when used.
- */
-export declare function createDefaultOrchestrateSolver(options?: {
-    headless?: boolean;
-    timeout?: number;
-}): OrchestrateSolverFn;
+export { AccessDeniedError, CloudflareError, FlareSolverrError, OrchestrateChallengeError, OrchestrateLoopError, ParserError, RequestError, errors } from "./errors";
 export default request;

@@ -1,0 +1,5 @@
+autoInstallPeers: false
+strictPeerDependencies: false
+minimumReleaseAgeExclude:
+    - patchright-core@1.62.3
+    - patchright@1.62.3

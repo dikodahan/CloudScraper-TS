@@ -1,0 +1,7 @@
+{
+  "statusCode": 403,
+  "headers": {
+    "server": "ddos-guard",
+    "content-type": "text/html; charset=UTF-8"
+  }
+}

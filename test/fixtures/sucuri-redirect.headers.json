@@ -1,0 +1,7 @@
+{
+  "statusCode": 200,
+  "headers": {
+    "server": "Sucuri/Cloudproxy",
+    "content-type": "text/html; charset=UTF-8"
+  }
+}

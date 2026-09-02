@@ -20,9 +20,11 @@ coverage
 build/Release
 
 # Dependency directory
-# Commenting this out is preferred by some people, see
-# https://www.npmjs.org/doc/misc/npm-faq.html#should-i-check-my-node_modules-folder-into-git-
 node_modules
+
+# Foreign lockfiles (this repo uses pnpm)
+package-lock.json
+yarn.lock
 
 # Local env (use .env.sample as template)
 .env
@@ -32,7 +34,15 @@ node_modules
 
 .nyc_output/
 
-# Local Claude Code guidance and the v2 rebuild plan (untracked, machine-local)
+# Solver failure dumps (Phase 0 debugDir)
+test/debug-output/
+
+# Local AI Code guidance and the v2 rebuild plan (untracked, machine-local)
 CLAUDE.md
 CLAUDE.local.md
 .claude/
+
+# Keep Cursor project rules in git; ignore the rest of .cursor
+.cursor/*
+!.cursor/rules/
+!.cursor/rules/**

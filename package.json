@@ -1,7 +1,7 @@
 {
   "name": "cloudscraper-ts",
-  "version": "1.1.0",
-  "description": "Bypasses some anti-bot pages made by CloudFlare.",
+  "version": "2.0.0",
+  "description": "Bypasses Cloudflare JS challenges and anti-bot interstitial pages.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
@@ -13,20 +13,24 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md"
   ],
   "engines": {
-    "node": ">=24.0.0"
+    "node": ">=20.0.0",
+    "pnpm": ">=10"
   },
+  "packageManager": "pnpm@11.10.0",
   "scripts": {
-    "test": "node test/server.js run",
+    "test": "node --test test/detect.test.js && node test/targets.js",
     "test:server": "node test/server.js",
+    "test:once": "node test/server.js run",
     "build": "tsc --build",
     "clean": "tsc --build --clean",
-    "prepare": "npm run build",
+    "prepare": "tsc --build",
     "eslint": "eslint .",
     "prettier": "prettier --write .",
-    "lint": "npm run eslint"
+    "lint": "eslint ."
   },
   "repository": {
     "type": "git",
@@ -43,15 +47,15 @@
     "tough-cookie": "^6.0.2"
   },
   "peerDependencies": {
-    "playwright": "*",
-    "puppeteer": "*",
+    "impit": "^0.14.4",
+    "patchright": "^1.62.2",
     "puppeteer-core": "*"
   },
   "peerDependenciesMeta": {
-    "playwright": {
+    "impit": {
       "optional": true
     },
-    "puppeteer": {
+    "patchright": {
       "optional": true
     },
     "puppeteer-core": {
@@ -67,5 +71,9 @@
     "prettier": "^3.9.5",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.64.0"
+  },
+  "optionalDependencies": {
+    "impit": "^0.14.4",
+    "patchright": "^1.62.3"
   }
 }
