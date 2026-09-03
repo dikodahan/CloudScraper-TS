@@ -1,3 +1,5 @@
+import { existsSync } from "fs";
+
 export interface PooledBrowser {
     newContext(opts?: Record<string, unknown>): Promise<PooledContext>;
     close(): Promise<void>;
@@ -81,6 +83,16 @@ function browserProxy(proxy: string): Record<string, string> {
     }
 }
 
+function systemChromiumPath(): string | undefined {
+    const candidates = [
+        process.env.CLOUDSCRAPER_CHROMIUM_EXECUTABLE_PATH,
+        process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
+        "/usr/bin/chromium",
+        "/usr/bin/chromium-browser",
+    ];
+    return candidates.find((candidate): candidate is string => !!candidate && existsSync(candidate));
+}
+
 async function destroyEntry(key: string, entry: PoolEntry): Promise<void> {
     pools.delete(key);
     await entry.context.close().catch(() => undefined);
@@ -110,6 +122,10 @@ async function getOrCreate(lib: PlaywrightLike, opts: PoolOptions): Promise<Pool
         headless: opts.headless !== false,
         args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
     };
+    const executablePath = systemChromiumPath();
+    if (executablePath) {
+        launchOpts.executablePath = executablePath;
+    }
     if (opts.proxy) {
         launchOpts.proxy = browserProxy(opts.proxy);
     }

@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.setMaxConcurrentSolves = setMaxConcurrentSolves;
 exports.closeBrowserPool = closeBrowserPool;
 exports.withPooledPage = withPooledPage;
+const fs_1 = require("fs");
 const DEFAULT_TTL_MS = 5 * 60 * 1000;
 const pools = new Map();
 let maxConcurrent = 2;
@@ -44,6 +45,15 @@ function browserProxy(proxy) {
         return { server: proxy };
     }
 }
+function systemChromiumPath() {
+    const candidates = [
+        process.env.CLOUDSCRAPER_CHROMIUM_EXECUTABLE_PATH,
+        process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
+        "/usr/bin/chromium",
+        "/usr/bin/chromium-browser",
+    ];
+    return candidates.find((candidate) => !!candidate && (0, fs_1.existsSync)(candidate));
+}
 async function destroyEntry(key, entry) {
     pools.delete(key);
     await entry.context.close().catch(() => undefined);
@@ -71,6 +81,10 @@ async function getOrCreate(lib, opts) {
         headless: opts.headless !== false,
         args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
     };
+    const executablePath = systemChromiumPath();
+    if (executablePath) {
+        launchOpts.executablePath = executablePath;
+    }
     if (opts.proxy) {
         launchOpts.proxy = browserProxy(opts.proxy);
     }
