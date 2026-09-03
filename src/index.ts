@@ -32,6 +32,7 @@ export interface Options {
     formData?: Record<string, string | number>;
     qs?: Record<string, string | number | undefined>;
     json?: boolean | object;
+    body?: string | Buffer;
     encoding?: string | null;
     baseUrl?: string;
     prefixUrl?: string;
@@ -142,6 +143,9 @@ function buildTransportRequest(params: DefaultParams | undefined, opts: Internal
     }
     if (typeof opts.json === "object") {
         transportOpts.json = opts.json;
+    }
+    if (opts.body != null) {
+        transportOpts.body = opts.body;
     }
     return { url, transportOpts };
 }
@@ -313,7 +317,12 @@ async function onOrchestrateChallenge(options: InternalOptions, params: DefaultP
     if (isSolverResult(result)) {
         newOptions.headers["user-agent"] = result.userAgent;
         if (result.cookies?.length) {
-            await setCookiesOnJar(cookieJar, url, result.cookies);
+            // A GET solver may return the already-rendered destination body.
+            // That response is valid even when Cloudflare did not persist a
+            // cf_clearance cookie; follow-up requests still require clearance.
+            await setCookiesOnJar(cookieJar, url, result.cookies, {
+                requireClearance: !(result.body != null && String(options.method ?? "GET").toUpperCase() === "GET"),
+            });
         }
         const method = String(options.method ?? "GET").toUpperCase();
         if (result.body != null && method === "GET") {

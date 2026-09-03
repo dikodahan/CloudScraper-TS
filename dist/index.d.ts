@@ -21,6 +21,7 @@ export interface Options {
     formData?: Record<string, string | number>;
     qs?: Record<string, string | number | undefined>;
     json?: boolean | object;
+    body?: string | Buffer;
     encoding?: string | null;
     baseUrl?: string;
     prefixUrl?: string;

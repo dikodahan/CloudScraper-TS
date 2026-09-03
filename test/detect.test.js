@@ -221,7 +221,9 @@ test("SolverResult body on GET skips the follow-up request", async () => {
                 return { url: "https://example.com/", statusCode: f.statusCode, headers: f.headers, body: Buffer.from(f.body) };
             },
             solveOrchestrateChallenge: async () => ({
-                cookies: [{ name: "cf_clearance", value: "tok", path: "/" }],
+                // A stealth browser may reach the destination without Cloudflare
+                // issuing a persistent clearance cookie.
+                cookies: [{ name: "session", value: "ok", path: "/" }],
                 userAgent: "Solved-UA/1.0",
                 body: "<html>solved-page</html>",
                 status: 200,

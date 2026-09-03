@@ -1,7 +1,12 @@
 import { CookieJar } from "tough-cookie";
 import { CookieForJar } from "./solver-types";
 
-export async function setCookiesOnJar(cookieJar: CookieJar, url: string, cookies: Array<CookieForJar>): Promise<void> {
+export async function setCookiesOnJar(
+    cookieJar: CookieJar,
+    url: string,
+    cookies: Array<CookieForJar>,
+    options: { requireClearance?: boolean } = {},
+): Promise<void> {
     const rejections: string[] = [];
     let clearanceSet = false;
     for (const c of cookies) {
@@ -22,7 +27,7 @@ export async function setCookiesOnJar(cookieJar: CookieJar, url: string, cookies
             rejections.push(c.name + ": " + (err instanceof Error ? err.message : String(err)));
         }
     }
-    if (!clearanceSet) {
+    if (options.requireClearance !== false && !clearanceSet) {
         throw new Error("Solver did not set cf_clearance" + (rejections.length ? " (" + rejections.join("; ") + ")" : ""));
     }
 }

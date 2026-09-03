@@ -86,6 +86,9 @@ function buildTransportRequest(params, opts) {
     if (typeof opts.json === "object") {
         transportOpts.json = opts.json;
     }
+    if (opts.body != null) {
+        transportOpts.body = opts.body;
+    }
     return { url, transportOpts };
 }
 function buildResponse(raw) {
@@ -242,7 +245,12 @@ async function onOrchestrateChallenge(options, params, response, body) {
     if ((0, solver_types_1.isSolverResult)(result)) {
         newOptions.headers["user-agent"] = result.userAgent;
         if (result.cookies?.length) {
-            await (0, cookies_1.setCookiesOnJar)(cookieJar, url, result.cookies);
+            // A GET solver may return the already-rendered destination body.
+            // That response is valid even when Cloudflare did not persist a
+            // cf_clearance cookie; follow-up requests still require clearance.
+            await (0, cookies_1.setCookiesOnJar)(cookieJar, url, result.cookies, {
+                requireClearance: !(result.body != null && String(options.method ?? "GET").toUpperCase() === "GET"),
+            });
         }
         const method = String(options.method ?? "GET").toUpperCase();
         if (result.body != null && method === "GET") {

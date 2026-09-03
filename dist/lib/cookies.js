@@ -1,7 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.setCookiesOnJar = setCookiesOnJar;
-async function setCookiesOnJar(cookieJar, url, cookies) {
+async function setCookiesOnJar(cookieJar, url, cookies, options = {}) {
     const rejections = [];
     let clearanceSet = false;
     for (const c of cookies) {
@@ -29,7 +29,7 @@ async function setCookiesOnJar(cookieJar, url, cookies) {
             rejections.push(c.name + ": " + (err instanceof Error ? err.message : String(err)));
         }
     }
-    if (!clearanceSet) {
+    if (options.requireClearance !== false && !clearanceSet) {
         throw new Error("Solver did not set cf_clearance" + (rejections.length ? " (" + rejections.join("; ") + ")" : ""));
     }
 }

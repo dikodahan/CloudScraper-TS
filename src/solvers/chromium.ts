@@ -74,7 +74,11 @@ async function runChromiumSolve(lib: PlaywrightLike, engine: string, context: Or
                     status: 200,
                     url: typeof page.url === "function" ? page.url() : context.url,
                 };
-                await setCookiesOnJar(context.cookieJar, context.url, cookies);
+                // A successfully rendered response is usable even when Cloudflare
+                // elects not to issue cf_clearance (common with stealth browsers).
+                await setCookiesOnJar(context.cookieJar, context.url, cookies, {
+                    requireClearance: false,
+                });
                 return result;
             } catch (err) {
                 await dumpBrowserPage(context, page, err);

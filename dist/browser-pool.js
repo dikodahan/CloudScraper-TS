@@ -30,6 +30,20 @@ function release() {
 function poolKey(opts) {
     return [opts.engine, opts.proxy ?? "", opts.impersonate ?? "", String(opts.headless !== false)].join("|");
 }
+function browserProxy(proxy) {
+    try {
+        const parsed = new URL(proxy);
+        const server = `${parsed.protocol}//${parsed.hostname}${parsed.port ? `:${parsed.port}` : ""}`;
+        return {
+            server,
+            ...(parsed.username ? { username: decodeURIComponent(parsed.username) } : {}),
+            ...(parsed.password ? { password: decodeURIComponent(parsed.password) } : {}),
+        };
+    }
+    catch {
+        return { server: proxy };
+    }
+}
 async function destroyEntry(key, entry) {
     pools.delete(key);
     await entry.context.close().catch(() => undefined);
@@ -55,10 +69,10 @@ async function getOrCreate(lib, opts) {
     }
     const launchOpts = {
         headless: opts.headless !== false,
-        args: ["--no-sandbox", "--disable-setuid-sandbox"],
+        args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
     };
     if (opts.proxy) {
-        launchOpts.proxy = { server: opts.proxy };
+        launchOpts.proxy = browserProxy(opts.proxy);
     }
     const browser = await lib.chromium.launch(launchOpts);
     const context = await browser.newContext();
