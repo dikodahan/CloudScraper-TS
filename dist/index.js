@@ -320,8 +320,8 @@ async function request(options, params, retries = 0) {
         headers: (options?.headers ?? defaultParams.headers ?? { ...caseless_1.DEFAULT_HEADERS, Host: HOST }),
         logger: defaultParams.logger,
         debugDir: defaultParams.debugDir,
-        proxy: defaultParams.proxy,
-        impersonate: defaultParams.impersonate,
+        proxy: options?.proxy ?? defaultParams.proxy,
+        impersonate: options?.impersonate ?? defaultParams.impersonate,
         timeout: options?.timeout ?? defaultParams.timeout,
         retry: options?.retry ?? defaultParams.retry,
     };

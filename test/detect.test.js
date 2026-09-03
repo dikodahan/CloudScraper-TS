@@ -235,6 +235,39 @@ test("SolverResult body on GET skips the follow-up request", async () => {
     assert.match(String(res.body), /solved-page/);
 });
 
+test("request-level proxy and impersonate reach the orchestrate solver", async () => {
+    const f = loadFixture("orchestrate-challenge");
+    const request = require("../dist/index").default;
+    let solverContext;
+    await request(
+        {
+            uri: "https://example.com/",
+            method: "GET",
+            proxy: "http://user:pass@proxy.example:8080",
+            impersonate: "chrome",
+        },
+        {
+            requester: async () => ({
+                url: "https://example.com/",
+                statusCode: f.statusCode,
+                headers: f.headers,
+                body: Buffer.from(f.body),
+            }),
+            solveOrchestrateChallenge: async (context) => {
+                solverContext = context;
+                return {
+                    cookies: [],
+                    userAgent: "Solved-UA/1.0",
+                    body: "<html>solved-page</html>",
+                    status: 200,
+                };
+            },
+        },
+    );
+    assert.equal(solverContext.proxy, "http://user:pass@proxy.example:8080");
+    assert.equal(solverContext.impersonate, "chrome");
+});
+
 function mockFetch(handler) {
     const orig = global.fetch;
     const cmds = [];

@@ -395,8 +395,8 @@ async function request(options?: Options, params?: DefaultParams, retries = 0): 
         headers: (options?.headers ?? defaultParams.headers ?? { ...DEFAULT_HEADERS, Host: HOST }) as Record<string, string>,
         logger: defaultParams.logger,
         debugDir: defaultParams.debugDir,
-        proxy: defaultParams.proxy,
-        impersonate: defaultParams.impersonate,
+        proxy: (options?.proxy as string | undefined) ?? defaultParams.proxy,
+        impersonate: (options?.impersonate as string | undefined) ?? defaultParams.impersonate,
         timeout: options?.timeout ?? defaultParams.timeout,
         retry: options?.retry ?? defaultParams.retry,
     };
