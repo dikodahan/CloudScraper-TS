@@ -501,3 +501,11 @@ test("got fallback fetches a plain page over HTTP/2 path", async () => {
     assert.equal(res.status, 200);
     assert.match(res.body.toString("utf8"), /Example Domain/i);
 });
+
+test("Hebrew Just a moment titles are challenge titles", () => {
+    const { isChallengeTitle } = require("../dist/solvers/challenge-wait");
+    assert.equal(isChallengeTitle("Just a moment..."), true);
+    assert.equal(isChallengeTitle("רק רגע..."), true);
+    assert.equal(isChallengeTitle("רק רגע"), true);
+    assert.equal(isChallengeTitle("לוח שידורים"), false);
+});

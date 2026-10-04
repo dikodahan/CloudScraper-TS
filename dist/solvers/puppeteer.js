@@ -34,7 +34,7 @@ async function interceptMedia(page) {
 async function solveWithPage(page, context, options) {
     const timeout = context.timeout ?? options?.timeout ?? 45000;
     const deadline = Date.now() + timeout;
-    if (options?.disableMedia !== false) {
+    if (options?.disableMedia === true) {
         await interceptMedia(page);
     }
     await page.goto(context.url, {
@@ -42,10 +42,11 @@ async function solveWithPage(page, context, options) {
         timeout,
     });
     const tabs = options?.tabsTillVerify ?? 1;
-    if (tabs > 0) {
-        await (0, challenge_wait_1.clickVerify)(page, tabs);
-    }
-    await (0, challenge_wait_1.waitForChallengeClear)(page, deadline);
+    const browserWaitTimeoutSec = options?.browserWaitTimeoutSec ?? (Number(process.env.CLOUDSCRAPER_BROWSER_WAIT_TIMEOUT) || 1);
+    await (0, challenge_wait_1.waitForChallengeClear)(page, deadline, {
+        tabsTillVerify: tabs,
+        browserWaitTimeoutSec,
+    });
     if (typeof options?.waitInSeconds === "number" && options.waitInSeconds > 0) {
         await new Promise((r) => setTimeout(r, options.waitInSeconds * 1000));
     }

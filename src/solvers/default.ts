@@ -14,6 +14,7 @@ function cacheKey(options?: SolverOptions): string {
         impersonate: options?.impersonate,
         tabsTillVerify: options?.tabsTillVerify,
         disableMedia: options?.disableMedia,
+        browserWaitTimeoutSec: options?.browserWaitTimeoutSec,
         sessionTtlMs: options?.sessionTtlMs,
         concurrency: options?.concurrency,
         session: options?.session,

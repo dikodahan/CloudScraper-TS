@@ -163,7 +163,7 @@ export function createFlareSolverrOrchestrateSolver(baseUrl: string, options?: S
         }
         if (returnOnlyCookies) payload.returnOnlyCookies = true;
         if (wantScreenshot) payload.returnScreenshot = true;
-        if (options?.disableMedia !== false) payload.disableMedia = true;
+        if (options?.disableMedia === true) payload.disableMedia = true;
         if (isGet && (options?.tabsTillVerify ?? 1) > 0) {
             payload.tabs_till_verify = options?.tabsTillVerify ?? 1;
         }

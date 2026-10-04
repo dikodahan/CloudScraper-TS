@@ -120,7 +120,16 @@ async function getOrCreate(lib: PlaywrightLike, opts: PoolOptions): Promise<Pool
 
     const launchOpts: Record<string, unknown> = {
         headless: opts.headless !== false,
-        args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+        args: [
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-blink-features=AutomationControlled",
+            // FlareSolverr v3.5.2 — Chrome Local Network Access popup blocks challenges.
+            "--disable-features=LocalNetworkAccessChecks",
+            "--disable-search-engine-choice-screen",
+            "--ignore-certificate-errors",
+        ],
     };
     const executablePath = systemChromiumPath();
     if (executablePath) {
@@ -130,7 +139,12 @@ async function getOrCreate(lib: PlaywrightLike, opts: PoolOptions): Promise<Pool
         launchOpts.proxy = browserProxy(opts.proxy);
     }
     const browser = await lib.chromium.launch(launchOpts);
-    const context = await browser.newContext();
+    const locale = process.env.LANG?.split(".")[0]?.replace("_", "-");
+    const context = await browser.newContext({
+        ...(locale ? { locale } : {}),
+        // Avoid fixed small viewports that look automated to Turnstile.
+        viewport: { width: 1280, height: 800 },
+    });
     const entry: PoolEntry = { browser, context, lastUsed: Date.now(), ttl };
     pools.set(key, entry);
     return entry;

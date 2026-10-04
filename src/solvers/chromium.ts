@@ -3,7 +3,7 @@ import { PlaywrightLike, withPooledPage } from "../browser-pool";
 import { setCookiesOnJar } from "../lib/cookies";
 import { importOptional } from "../lib/optional-import";
 import { OrchestrateChallengeContext, OrchestrateSolverFn, SolverOptions, SolverResult } from "../lib/solver-types";
-import { ChallengeBlockedError, clickVerify, disableMediaRoutes, waitForChallengeClear, WaitPage } from "./challenge-wait";
+import { ChallengeBlockedError, disableMediaRoutes, waitForChallengeClear, WaitPage } from "./challenge-wait";
 import { dumpBrowserPage } from "./dump-page";
 
 function applySolverContext(context: OrchestrateChallengeContext, options?: SolverOptions): void {
@@ -49,7 +49,9 @@ async function runChromiumSolve(lib: PlaywrightLike, engine: string, context: Or
         async (rawPage, pooledContext) => {
             const page = rawPage as unknown as WaitPage & { goto(url: string, opts?: object): Promise<unknown>; content(): Promise<string>; screenshot(opts?: object): Promise<Buffer | Uint8Array>; url?(): string };
             try {
-                if (options?.disableMedia !== false) {
+                // Match FlareSolverr: media stays enabled unless explicitly disabled.
+                // Blocking CSS/images often prevents managed Turnstile from clearing.
+                if (options?.disableMedia === true) {
                     await disableMediaRoutes(page);
                 }
                 await page.goto(context.url, {
@@ -57,10 +59,14 @@ async function runChromiumSolve(lib: PlaywrightLike, engine: string, context: Or
                     timeout,
                 });
                 const tabs = options?.tabsTillVerify ?? 1;
-                if (tabs > 0) {
-                    await clickVerify(page, tabs);
-                }
-                await waitForChallengeClear(page, deadline);
+                const browserWaitTimeoutSec =
+                    options?.browserWaitTimeoutSec ??
+                    (Number(process.env.CLOUDSCRAPER_BROWSER_WAIT_TIMEOUT) || 1);
+                await waitForChallengeClear(page, deadline, {
+                    tabsTillVerify: tabs,
+                    browserWaitTimeoutSec,
+                });
+                // FlareSolverr: read cookies only after the optional post-clear wait.
                 if (typeof options?.waitInSeconds === "number" && options.waitInSeconds > 0) {
                     await new Promise((r) => setTimeout(r, options.waitInSeconds! * 1000));
                 }

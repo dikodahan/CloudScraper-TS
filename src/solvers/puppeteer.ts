@@ -2,7 +2,7 @@ import { AccessDeniedError } from "../errors";
 import { setCookiesOnJar } from "../lib/cookies";
 import { importOptional } from "../lib/optional-import";
 import { CookieForJar, OrchestrateChallengeContext, OrchestrateSolverFn, SolverOptions, SolverResult } from "../lib/solver-types";
-import { ChallengeBlockedError, clickVerify, waitForChallengeClear, WaitPage } from "./challenge-wait";
+import { ChallengeBlockedError, waitForChallengeClear, WaitPage } from "./challenge-wait";
 import { dumpBrowserPage } from "./dump-page";
 
 interface BrowserLike {
@@ -47,7 +47,7 @@ async function interceptMedia(page: PuppeteerPage): Promise<void> {
 async function solveWithPage(page: PuppeteerPage, context: OrchestrateChallengeContext, options?: SolverOptions): Promise<SolverResult> {
     const timeout = context.timeout ?? options?.timeout ?? 45000;
     const deadline = Date.now() + timeout;
-    if (options?.disableMedia !== false) {
+    if (options?.disableMedia === true) {
         await interceptMedia(page);
     }
     await page.goto(context.url, {
@@ -55,10 +55,12 @@ async function solveWithPage(page: PuppeteerPage, context: OrchestrateChallengeC
         timeout,
     });
     const tabs = options?.tabsTillVerify ?? 1;
-    if (tabs > 0) {
-        await clickVerify(page, tabs);
-    }
-    await waitForChallengeClear(page, deadline);
+    const browserWaitTimeoutSec =
+        options?.browserWaitTimeoutSec ?? (Number(process.env.CLOUDSCRAPER_BROWSER_WAIT_TIMEOUT) || 1);
+    await waitForChallengeClear(page, deadline, {
+        tabsTillVerify: tabs,
+        browserWaitTimeoutSec,
+    });
     if (typeof options?.waitInSeconds === "number" && options.waitInSeconds > 0) {
         await new Promise((r) => setTimeout(r, options.waitInSeconds! * 1000));
     }

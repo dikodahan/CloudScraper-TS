@@ -43,7 +43,7 @@ const res = await request(
             headless: true,
             timeout: 45000,
             tabsTillVerify: 1,
-            disableMedia: true,
+            // disableMedia defaults to false (managed Turnstile needs assets)
         }),
     },
 );
@@ -99,8 +99,9 @@ Returning `void` and only mutating `ctx.cookieJar` still works for one minor ver
 | `impersonate` | `DefaultParams` | impit browser id (`chrome`, `chrome151`, `firefox`, …). |
 | `logger` | `DefaultParams` | `(level, msg, meta?) => void`. |
 | `debugDir` | `DefaultParams` / `SolverOptions` | Solver-failure dump; FlareSolverr `returnScreenshot`. |
-| `tabsTillVerify` | `SolverOptions` | Tab-then-Space into Turnstile. `0` disables. Default `1`. |
-| `disableMedia` | `SolverOptions` | Block images/CSS/fonts. Default `true`. |
+| `tabsTillVerify` | `SolverOptions` | Tab-then-Space into Turnstile (re-tried while waiting). `0` disables. Default `1`. |
+| `disableMedia` | `SolverOptions` | Block images/CSS/fonts. Default `false` (FlareSolverr-aligned). |
+| `browserWaitTimeoutSec` | `SolverOptions` | Seconds between Turnstile re-click attempts. Default `1` / `CLOUDSCRAPER_BROWSER_WAIT_TIMEOUT`. |
 | `session` | `SolverOptions` | FlareSolverr session id. Default `"cloudscraper-ts"`. `false` = cold start. |
 | `sessionTtlMinutes` / `sessionTtlMs` | `SolverOptions` | FlareSolverr TTL / local browser pool TTL. |
 | `maxTimeout` | `SolverOptions` | FlareSolverr solve timeout (ms). |

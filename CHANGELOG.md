@@ -1,5 +1,23 @@
 ## Change Log
 
+### 2.1.1
+
+FlareSolverr v3.5.x-aligned orchestrate solver hardening for managed Turnstile / Hebrew interstitials.
+
+**Solver**
+
+- Recognize Hebrew Cloudflare titles (`רק רגע` / `רק רגע...`) as active challenges.
+- Treat `input[name=cf-turnstile-response]` as a challenge selector until it clears.
+- Re-click Turnstile during the wait loop (FlareSolverr `_evil_logic` pattern) using a `__focus_helper` focus reset, Tab×N + Space, iframe checkbox click, and only the first "Verify you are human" button (#1677 multi-button fix).
+- Default `disableMedia` is now **false** (was true). Managed challenges often need CSS/images; set `disableMedia: true` to restore the old bandwidth-saving behavior.
+- New `SolverOptions.browserWaitTimeoutSec` (+ env `CLOUDSCRAPER_BROWSER_WAIT_TIMEOUT`) mirrors FlareSolverr `BROWSER_WAIT_TIMEOUT`.
+- Read cookies only after `waitInSeconds` (FlareSolverr #1692 ordering).
+
+**Browser pool**
+
+- Launch Chromium with `--disable-features=LocalNetworkAccessChecks` (FlareSolverr v3.5.2), `--disable-search-engine-choice-screen`, and `--disable-blink-features=AutomationControlled`.
+- Default context viewport `1280×800`; honor `LANG` as Playwright `locale` when set.
+
 ### 2.1.0
 
 Dependency and tooling refresh on top of the 2.0 rebuild. Runtime API unchanged aside from got-fallback proxy behavior.

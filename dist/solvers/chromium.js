@@ -48,7 +48,9 @@ async function runChromiumSolve(lib, engine, context, options) {
     }, async (rawPage, pooledContext) => {
         const page = rawPage;
         try {
-            if (options?.disableMedia !== false) {
+            // Match FlareSolverr: media stays enabled unless explicitly disabled.
+            // Blocking CSS/images often prevents managed Turnstile from clearing.
+            if (options?.disableMedia === true) {
                 await (0, challenge_wait_1.disableMediaRoutes)(page);
             }
             await page.goto(context.url, {
@@ -56,10 +58,13 @@ async function runChromiumSolve(lib, engine, context, options) {
                 timeout,
             });
             const tabs = options?.tabsTillVerify ?? 1;
-            if (tabs > 0) {
-                await (0, challenge_wait_1.clickVerify)(page, tabs);
-            }
-            await (0, challenge_wait_1.waitForChallengeClear)(page, deadline);
+            const browserWaitTimeoutSec = options?.browserWaitTimeoutSec ??
+                (Number(process.env.CLOUDSCRAPER_BROWSER_WAIT_TIMEOUT) || 1);
+            await (0, challenge_wait_1.waitForChallengeClear)(page, deadline, {
+                tabsTillVerify: tabs,
+                browserWaitTimeoutSec,
+            });
+            // FlareSolverr: read cookies only after the optional post-clear wait.
             if (typeof options?.waitInSeconds === "number" && options.waitInSeconds > 0) {
                 await new Promise((r) => setTimeout(r, options.waitInSeconds * 1000));
             }

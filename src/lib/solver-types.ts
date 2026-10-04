@@ -54,8 +54,16 @@ export interface SolverOptions {
     impersonate?: string;
     /** Tab presses before Space on the Turnstile widget. 0 disables. Default 1. */
     tabsTillVerify?: number;
-    /** Block images/CSS/fonts/media during the solve. Default true. */
+    /**
+     * Block images/CSS/fonts/media during the solve.
+     * Default false (FlareSolverr-aligned) — managed Turnstile often needs page assets.
+     */
     disableMedia?: boolean;
+    /**
+     * Seconds between Turnstile re-click attempts while waiting (FlareSolverr
+     * `BROWSER_WAIT_TIMEOUT`). Default 1. Also reads `CLOUDSCRAPER_BROWSER_WAIT_TIMEOUT`.
+     */
+    browserWaitTimeoutSec?: number;
     /** Recycle the pooled browser context until this age (ms). Default 5 minutes. */
     sessionTtlMs?: number;
     /** Max concurrent browser solves. Default 2. */
