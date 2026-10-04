@@ -33,7 +33,7 @@ export interface Options {
     qs?: Record<string, string | number | undefined>;
     json?: boolean | object;
     body?: string | Buffer;
-    encoding?: string | null;
+    encoding?: BufferEncoding | null;
     baseUrl?: string;
     prefixUrl?: string;
     timeout?: number;
@@ -69,7 +69,7 @@ export interface DefaultParams {
 }
 
 interface InternalOptions extends Options {
-    realEncoding?: string;
+    realEncoding?: BufferEncoding;
     challengesToSolve: number;
     decodeEmails: boolean;
     decompress: boolean;
@@ -210,8 +210,8 @@ async function performRequest(options: InternalOptions, params: DefaultParams | 
 }
 
 function onRequestComplete(options: InternalOptions, response: ResponseLike, body: Buffer | string | unknown): Promise<{ response: ResponseLike; body: Buffer | string }> {
-    const encoding = (options.realEncoding ?? "utf8") as BufferEncoding;
-    if (typeof encoding === "string" && typeof body !== "string") {
+    const encoding = options.realEncoding ?? "utf8";
+    if (typeof body !== "string") {
         const str = Buffer.isBuffer(body) ? body.toString(encoding) : String(body);
         if (response.isHTML && options.decodeEmails) {
             response.body = decodeEmails(str);
@@ -387,7 +387,7 @@ async function request(options?: Options, params?: DefaultParams, retries = 0): 
     const merged: InternalOptions = {
         ...defaultParams,
         ...options,
-        realEncoding: (options?.encoding as string) ?? "utf8",
+        realEncoding: typeof options?.encoding === "string" ? options.encoding : "utf8",
         challengesToSolve: defaultParams.challengesToSolve ?? 3,
         decodeEmails: defaultParams.decodeEmails ?? false,
         decompress: defaultParams.decompress ?? true,

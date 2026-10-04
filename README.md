@@ -4,7 +4,10 @@ TypeScript library that bypasses Cloudflare JS challenges and some other anti-bo
 
 Published from Git only (`github:dikodahan/CloudScraper-TS#<ref>`), never npm. `prepare` builds `dist/`.
 
-Requires **Node.js ≥ 20**.
+## Requirements
+
+- **Node.js ≥ 24**
+- **pnpm ≥ 12** (this repo pins `packageManager: pnpm@12.9.1`; npm/yarn are not supported for local installs)
 
 ## Install
 
@@ -21,7 +24,7 @@ pnpm add impit patchright
 pnpm exec patchright install chromium
 ```
 
-`impit` supplies a Chrome TLS/JA3/JA4 + HTTP/2 fingerprint. `patchright` is the local browser solver (patched Chromium, Playwright API). Both are optional; without `impit` the library falls back to `got`.
+`impit` supplies a Chrome TLS/JA3/JA4 + HTTP/2 fingerprint. `patchright` is the local browser solver (patched Chromium, Playwright API). Both are optional; without `impit` the library falls back to `got` ^16 (built-in HTTP/2). SOCKS and HTTP/2 proxies need `impit`; the `got` fallback supports HTTP(S) proxies over HTTP/1.1 via `hpagent` (bundled).
 
 ## Usage
 
@@ -92,7 +95,7 @@ Returning `void` and only mutating `ctx.cookieJar` still works for one minor ver
 
 | Field | Where | Notes |
 |---|---|---|
-| `proxy` | `DefaultParams` / `SolverOptions` | Transport + browser. FlareSolverr `user:pass@` is split for `sessions.create`. |
+| `proxy` | `DefaultParams` / `SolverOptions` | Transport + browser (`http` / `https` / `socks4` / `socks5` via `impit`). Got fallback: HTTP(S) only. FlareSolverr `user:pass@` is split for `sessions.create`. |
 | `impersonate` | `DefaultParams` | impit browser id (`chrome`, `chrome151`, `firefox`, …). |
 | `logger` | `DefaultParams` | `(level, msg, meta?) => void`. |
 | `debugDir` | `DefaultParams` / `SolverOptions` | Solver-failure dump; FlareSolverr `returnScreenshot`. |
@@ -122,10 +125,13 @@ Returning `void` and only mutating `ctx.cookieJar` still works for one minor ver
 
 Do not branch on removed types (`CaptchaError`, `StatusCodeError`, `TransformError`).
 
-## Tests
+## Tests / develop
 
 ```bash
-pnpm test              # fixtures + live target matrix
+pnpm install           # requires pnpm ≥ 12; prepare builds dist/
+pnpm build
+pnpm test              # fixtures + live target matrix (includes got-fallback)
 pnpm test:server       # UI on :8765
 pnpm test:once         # one-shot CLI
+pnpm lint
 ```

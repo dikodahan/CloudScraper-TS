@@ -10,7 +10,7 @@
  */
 
 try {
-    require("dotenv").config();
+    require("dotenv").config({ quiet: true });
 } catch (_) {
     // dotenv optional; env can be set by shell
 }

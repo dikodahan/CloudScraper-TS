@@ -3,15 +3,17 @@
  * Run: node test/targets.js
  */
 try {
-    require("dotenv").config();
+    require("dotenv").config({ quiet: true });
 } catch (_) {
     /* optional */
 }
 
 const fs = require("fs");
 const path = require("path");
+const { CookieJar } = require("tough-cookie");
 const request = require("../dist/index").default;
 const { createDefaultOrchestrateSolver } = require("../dist/index");
+const { createGotTransport } = require("../dist/transports/got");
 
 const DEBUG_DIR = path.join(__dirname, "debug-output");
 
@@ -21,6 +23,13 @@ const TARGETS = [
         url: "https://example.com/",
         expect: "status200",
         solver: false,
+    },
+    {
+        id: "got-fallback",
+        url: "https://example.com/",
+        expect: "status200",
+        solver: false,
+        transport: "got",
     },
     {
         id: "cf-trace",
@@ -89,6 +98,18 @@ async function runTarget(t) {
                 return { id: t.id, ok: true, detail: "dump written to test/debug-output", ms: Date.now() - started };
             }
             return { id: t.id, ok: false, detail: "no debug dump (" + (err && err.message) + ")", ms: Date.now() - started };
+        }
+    }
+
+    if (t.transport === "got") {
+        try {
+            const transport = await createGotTransport(new CookieJar());
+            const res = await transport.request(t.url, { method: "GET", timeout: 30000, retry: 0 });
+            const ok = res && res.status >= 200 && res.status < 400;
+            return { id: t.id, ok, detail: "got HTTP " + (res && res.status), ms: Date.now() - started };
+        } catch (err) {
+            const name = err && err.name ? err.name : "Error";
+            return { id: t.id, ok: false, detail: name + ": " + (err && err.message ? err.message.split("\n")[0] : err), ms: Date.now() - started };
         }
     }
 

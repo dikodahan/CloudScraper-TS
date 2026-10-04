@@ -1,5 +1,5 @@
-import * as os from "os";
-import * as http from "http";
+import * as os from "node:os";
+import * as http from "node:http";
 
 const EOL = os.EOL;
 

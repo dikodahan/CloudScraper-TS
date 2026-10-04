@@ -479,3 +479,25 @@ test("destroyFlareSolverrSession sends sessions.destroy", async () => {
         mock.restore();
     }
 });
+
+test("got fallback rejects SOCKS proxies", async () => {
+    const { CookieJar } = require("tough-cookie");
+    const { createGotTransport } = require("../dist/transports/got");
+    await assert.rejects(() => createGotTransport(new CookieJar(), { proxy: "socks5://127.0.0.1:1080" }), /SOCKS|impit/i);
+});
+
+test("got fallback builds HTTP(S) proxy agents via hpagent", async () => {
+    const { CookieJar } = require("tough-cookie");
+    const { createGotTransport } = require("../dist/transports/got");
+    const transport = await createGotTransport(new CookieJar(), { proxy: "http://127.0.0.1:9" });
+    assert.equal(typeof transport.request, "function");
+});
+
+test("got fallback fetches a plain page over HTTP/2 path", async () => {
+    const { CookieJar } = require("tough-cookie");
+    const { createGotTransport } = require("../dist/transports/got");
+    const transport = await createGotTransport(new CookieJar());
+    const res = await transport.request("https://example.com/", { method: "GET", timeout: 15000, retry: 0 });
+    assert.equal(res.status, 200);
+    assert.match(res.body.toString("utf8"), /Example Domain/i);
+});

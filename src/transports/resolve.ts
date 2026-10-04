@@ -28,7 +28,7 @@ export async function resolveTransport(params: TransportParams, cookieJar: Cooki
         transport = await createImpitTransport(params, cookieJar);
     } catch (err) {
         if (!isImpitUnavailable(err)) throw err;
-        transport = await createGotTransport(cookieJar);
+        transport = await createGotTransport(cookieJar, params);
     }
     byKey.set(key, transport);
     return transport;

@@ -13,7 +13,11 @@ export async function dumpBrowserPage(context: OrchestrateChallengeContext, page
     try {
         if (typeof page.screenshot === "function") {
             const shot = await page.screenshot({ type: "png", fullPage: true });
-            screenshot = Buffer.isBuffer(shot) ? shot : Buffer.from(shot);
+            if (Buffer.isBuffer(shot)) {
+                screenshot = shot;
+            } else {
+                screenshot = Buffer.from(shot.buffer, shot.byteOffset, shot.byteLength);
+            }
         }
     } catch {
         /* ignore */

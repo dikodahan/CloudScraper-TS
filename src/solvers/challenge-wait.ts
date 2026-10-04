@@ -61,7 +61,7 @@ export async function waitForChallengeClear(page: WaitPage, deadline: number): P
         try {
             title = await page.title();
         } catch {
-            title = "";
+            /* keep empty title and continue selector checks */
         }
         if (isAccessDeniedTitle(title)) {
             throw new ChallengeBlockedError();

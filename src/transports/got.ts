@@ -1,6 +1,6 @@
 import { CookieJar } from "tough-cookie";
 import { importOptional } from "../lib/optional-import";
-import { Requester, Transport, TransportRequestOpts, TransportResponse } from "../transport";
+import { Requester, Transport, TransportParams, TransportRequestOpts, TransportResponse } from "../transport";
 
 function toBuffer(body: Buffer | Uint8Array | string): Buffer {
     if (Buffer.isBuffer(body)) return body;
@@ -8,7 +8,26 @@ function toBuffer(body: Buffer | Uint8Array | string): Buffer {
     return Buffer.from(String(body));
 }
 
-export function wrapRequester(requester: Requester, cookieJar?: CookieJar): Transport {
+function isSocksProxy(proxy: string): boolean {
+    return /^socks[45]?h?:\/\//i.test(proxy.trim());
+}
+
+async function httpProxyAgents(proxy: string): Promise<{ http: object; https: object }> {
+    const m = (await importOptional("hpagent")) as {
+        HttpProxyAgent?: new (opts: { proxy: string; keepAlive?: boolean }) => object;
+        HttpsProxyAgent?: new (opts: { proxy: string; keepAlive?: boolean }) => object;
+    };
+    if (!m.HttpProxyAgent || !m.HttpsProxyAgent) {
+        throw new Error("got fallback with an HTTP(S) proxy requires hpagent. Install with: pnpm add hpagent");
+    }
+    const opts = { proxy, keepAlive: true };
+    return {
+        http: new m.HttpProxyAgent(opts),
+        https: new m.HttpsProxyAgent(opts),
+    };
+}
+
+export function wrapRequester(requester: Requester, cookieJar?: CookieJar, defaults?: Record<string, unknown>): Transport {
     return {
         async request(url: string, opts: TransportRequestOpts): Promise<TransportResponse> {
             const res = await requester(url, {
@@ -19,6 +38,7 @@ export function wrapRequester(requester: Requester, cookieJar?: CookieJar): Tran
                 decompress: true,
                 responseType: "buffer",
                 throwHttpErrors: false,
+                // Cloudflare challenge bodies can mismatch Content-Length after transforms (got@15+ default is true).
                 strictContentLength: false,
                 form: opts.form,
                 json: opts.json,
@@ -26,6 +46,7 @@ export function wrapRequester(requester: Requester, cookieJar?: CookieJar): Tran
                 body: opts.body,
                 timeout: opts.timeout ? { request: opts.timeout } : undefined,
                 retry: { limit: typeof opts.retry === "number" && opts.retry >= 0 ? opts.retry : 0 },
+                ...defaults,
             });
             return {
                 status: res.statusCode,
@@ -37,8 +58,28 @@ export function wrapRequester(requester: Requester, cookieJar?: CookieJar): Tran
     };
 }
 
-export async function createGotTransport(cookieJar: CookieJar): Promise<Transport> {
+/**
+ * got@16 fallback transport. Uses built-in HTTP/2 when there is no proxy.
+ * HTTP(S) proxies use hpagent over HTTP/1.1 (got@16 removed HTTP/2 proxy support).
+ * SOCKS proxies are not supported here — use impit.
+ */
+export async function createGotTransport(cookieJar: CookieJar, params?: TransportParams): Promise<Transport> {
     const m = (await importOptional("got")) as { default?: Requester };
     const got = (m.default ?? m) as Requester;
-    return wrapRequester(got, cookieJar);
+    const proxy = params?.proxy?.trim();
+    if (proxy && isSocksProxy(proxy)) {
+        throw new Error("got fallback does not support SOCKS proxies. Install impit (pnpm add impit) or use an HTTP(S) proxy.");
+    }
+
+    const defaults: Record<string, unknown> = {};
+    if (proxy) {
+        const agents = await httpProxyAgents(proxy);
+        // Custom https agents force the HTTP/1.1 path; agent.http2 must not be an Agent instance on got@16.
+        defaults.http2 = false;
+        defaults.agent = { http: agents.http, https: agents.https, http2: false };
+    } else {
+        defaults.http2 = true;
+    }
+
+    return wrapRequester(got, cookieJar, defaults);
 }

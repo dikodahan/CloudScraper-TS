@@ -1,5 +1,22 @@
 ## Change Log
 
+### 2.1.0
+
+Dependency and tooling refresh on top of the 2.0 rebuild. Runtime API unchanged aside from got-fallback proxy behavior.
+
+**Runtime**
+
+- `got` ^16.0.0 (built-in HTTP/2 when unproxied). HTTP/2 proxy support is gone upstream.
+- `hpagent` ^1.2.0 for HTTP(S) proxies on the got fallback (HTTP/1.1). SOCKS / HTTP/2 proxies require `impit`.
+- `impit` ^0.14.5, `patchright` / `playwright` ^1.63.0.
+
+**Tooling / engines**
+
+- `engines.node` `>=24`, `engines.pnpm` `>=12`, `packageManager` `pnpm@12.9.1`.
+- TypeScript ^6.0.3 (`moduleResolution: "bundler"`, `rootDir: "./src"`; not 7 yet — `typescript-eslint` peers `<6.1` and TS 7 has no tooling API).
+- ESLint 10 + `@eslint/js` ^10, `dotenv` ^18, `prettier` ^3.9.9, `@types/node` ^24.19.1 (Node 24 line, not 26).
+- Node builtins use `node:` imports; `Options.encoding` is `BufferEncoding`.
+
 ### 2.0.0
 
 Breaking rebuild. Transport is `impit` (Chrome TLS/JA3/JA4 + HTTP/2) with `got` as fallback. Local solves use `patchright`. FlareSolverr is a first-class optional backend.
@@ -19,7 +36,7 @@ Breaking rebuild. Transport is `impit` (Chrome TLS/JA3/JA4 + HTTP/2) with `got` 
 - A GET with `SolverResult.body` skips the follow-up HTTP request.
 - Default solver order: patchright → `FLARESOLVERR_URL` → `BROWSERLESS_WS_ENDPOINT` → playwright → puppeteer.
 - `errorType` 1 is now `AccessDeniedError` (was `CaptchaError`). `errorType` 4 is `OrchestrateLoopError` (was `StatusCodeError`). New: `FlareSolverrError` (`errorType` 8). Do not renumber the rest.
-- `engines.node` is `>=20` (was `>=24`).
+- `engines.node` is `>=24`.
 - Optional peers: `impit`, `patchright`, `puppeteer-core`. `playwright` / `puppeteer` are runtime fallbacks, not peers.
 - Lockfile is `pnpm-lock.yaml` (pnpm). `package-lock.json` / `yarn.lock` are gone.
 

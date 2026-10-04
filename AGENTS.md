@@ -6,7 +6,7 @@ Cursor / Codex counterpart to local `CLAUDE.md`. Same rules apply.
 
 TypeScript rewrite of [codemanki/cloudscraper](https://github.com/codemanki/cloudscraper). Published from Git (`github:dikodahan/CloudScraper-TS#<ref>`), never npm. `prepare` builds `dist/`.
 
-Shipped version: **2.0.0**. Rebuild plan: `.claude/v2-rebuild-plan.md` (complete).
+Shipped version: **2.1.0**. Rebuild plan: `.claude/v2-rebuild-plan.md` (complete). Engines: Node ≥ 24, pnpm ≥ 12 (`packageManager` `pnpm@12.9.1`).
 
 ## Before v2 / rebuild / modernization
 
@@ -32,7 +32,8 @@ pnpm prettier          # prettier --write .
 ## Conventions
 
 - Prettier: 4-space indent, double quotes, semicolons, `arrowParens: always`, `printWidth: 10000` (do not hand-wrap).
-- TypeScript: `strict: true`, `noImplicitAny: false`, `module: CommonJS`, `declaration: true`.
-- Optional deps: runtime `import(id)` in try/catch; package must work with none installed.
+- TypeScript 6: `strict: true`, `noImplicitAny: false`, `module: CommonJS`, `moduleResolution: bundler`, `rootDir: src`, `declaration: true`. Stay off TS 7 until `typescript-eslint` supports a tooling API.
+- Transport: `impit` primary, `got` ^16 fallback (`hpagent` for HTTP(S) proxy). `got` is ESM-only — load via `await import("got")`.
+- Optional deps: runtime `import(id)` in try/catch; package must work with none of `impit` / `patchright` / `puppeteer-core` installed.
 - Public API: default export `request` plus named exports from `src/index.ts`.
 - Do not renumber `errorType` in `src/errors.ts`. Rebuild `dist/` after `src/` changes.

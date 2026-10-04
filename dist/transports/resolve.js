@@ -27,7 +27,7 @@ async function resolveTransport(params, cookieJar) {
     catch (err) {
         if (!(0, impit_1.isImpitUnavailable)(err))
             throw err;
-        transport = await (0, got_1.createGotTransport)(cookieJar);
+        transport = await (0, got_1.createGotTransport)(cookieJar, params);
     }
     byKey.set(key, transport);
     return transport;
