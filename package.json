@@ -1,6 +1,6 @@
 {
   "name": "cloudscraper-ts",
-  "version": "2.1.3",
+  "version": "2.1.4",
   "description": "Bypasses Cloudflare JS challenges and anti-bot interstitial pages.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -27,7 +27,6 @@
     "test:once": "node test/server.js run",
     "build": "tsc --build",
     "clean": "tsc --build --clean",
-    "prepare": "node -e \"const fs=require('node:fs'); if (fs.existsSync('dist/index.js')) process.exit(0); require('node:child_process').execSync('tsc --build',{stdio:'inherit'});\"",
     "prepublishOnly": "tsc --build",
     "eslint": "eslint .",
     "prettier": "prettier --write .",

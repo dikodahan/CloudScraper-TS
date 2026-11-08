@@ -1,10 +1,16 @@
 ## Change Log
 
+### 2.1.4
+
+**Packaging**
+
+- Remove the `prepare` lifecycle script entirely. GitHub/npm installs use the committed `dist/` and no longer need a nested toolchain install under npm's `allowScripts` policy. `prepublishOnly` still builds before publish.
+
 ### 2.1.3
 
 **Packaging**
 
-- `prepare` skips `tsc` when `dist/index.js` is already present so GitHub installs work under npm's `allowScripts` policy (committed `dist` is enough). `prepublishOnly` still builds before publish.
+- `prepare` skipped `tsc` when `dist/index.js` was already present (superseded by 2.1.4).
 
 ### 2.1.2
 
