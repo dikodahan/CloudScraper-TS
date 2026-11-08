@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ACCESS_DENIED_SELECTORS = exports.ACCESS_DENIED_TITLES = void 0;
 exports.isAccessDeniedPage = isAccessDeniedPage;
+exports.hasActiveOrchestrateMarkers = hasActiveOrchestrateMarkers;
 exports.shouldHandleChallenge = shouldHandleChallenge;
 exports.isOrchestrateChallenge = isOrchestrateChallenge;
 exports.isSucuriRedirect = isSucuriRedirect;
@@ -22,6 +23,26 @@ function isAccessDeniedPage(body) {
         return true;
     return /Sorry, you have been blocked/i.test(body);
 }
+/**
+ * Active Cloudflare orchestrate / managed-challenge markers.
+ *
+ * Do NOT treat the post-clearance bot-management beacon
+ * (`/cdn-cgi/challenge-platform/scripts/jsd/main.js`) as a challenge — Cloudflare
+ * injects that script on many successfully cleared HTML pages (e.g. kan.org.il).
+ */
+function hasActiveOrchestrateMarkers(body) {
+    if (body.indexOf("_cf_chl_opt") !== -1)
+        return true;
+    if (/cf-turnstile|input\[name=["']cf-turnstile-response["']|challenge-running|cf-browser-verification/i.test(body)) {
+        return true;
+    }
+    // Real challenge script/path prefixes (exclude the jsd beacon).
+    if (/cdn-cgi\/challenge-platform\/(?:h\/|orchestrate|static\/)/i.test(body))
+        return true;
+    if (/cdn-cgi\/challenge-platform\/scripts\/(?!jsd(?:\/|"|'|\?|$))/i.test(body))
+        return true;
+    return false;
+}
 /** Whether the response should enter challenge handling (not gated on server: cloudflare). */
 function shouldHandleChallenge(response, body) {
     const h = (0, caseless_1.caseless)(response.headers);
@@ -35,7 +56,7 @@ function shouldHandleChallenge(response, body) {
     const status = response.statusCode ?? 0;
     if (html && (status === 403 || status === 503))
         return true;
-    if (body.indexOf("_cf_chl_opt") !== -1 || body.indexOf("cdn-cgi/challenge-platform") !== -1)
+    if (hasActiveOrchestrateMarkers(body))
         return true;
     return false;
 }
@@ -43,12 +64,11 @@ function isOrchestrateChallenge(response, body) {
     if (isAccessDeniedPage(body))
         return false;
     const h = (0, caseless_1.caseless)(response.headers);
-    const hasJustAMoment = body.indexOf("Just a moment") !== -1 || /<title[^>]*>[\s\S]*Just a moment[\s\S]*<\/title>/i.test(body);
-    const hasOrchestrate = body.indexOf("_cf_chl_opt") !== -1 || body.indexOf("challenge-platform") !== -1 || body.indexOf("cdn-cgi/challenge-platform") !== -1;
     const hasCfMitigated = h["cf-mitigated"] === "challenge";
     const hasDdosGuard = /ddos-guard/i.test(String(h.server ?? "")) || /<title[^>]*>[\s\S]*DDoS-Guard[\s\S]*<\/title>/i.test(body);
     const hasOldIuam = body.indexOf("a = document.getElementById('jschl-answer');") !== -1;
-    return !hasOldIuam && (hasCfMitigated || hasOrchestrate || hasDdosGuard || (hasJustAMoment && hasOrchestrate));
+    const hasActive = hasActiveOrchestrateMarkers(body);
+    return !hasOldIuam && (hasCfMitigated || hasDdosGuard || hasActive);
 }
 function isSucuriRedirect(body) {
     return body.indexOf("You are being redirected") !== -1 || body.indexOf("sucuri_cloudproxy_js") !== -1;

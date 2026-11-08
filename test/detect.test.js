@@ -45,6 +45,24 @@ test("403 HTML with challenge-platform is handled even without server: cloudflar
     assert.equal(isOrchestrateChallenge(response, body), true);
 });
 
+test("cleared HTML with only Cloudflare jsd beacon is not an orchestrate challenge", () => {
+    // Cloudflare injects /cdn-cgi/challenge-platform/scripts/jsd/main.js after clearance.
+    // Treating that as a challenge falsely fails sites like kan.org.il lobby pages.
+    const body = [
+        "<!DOCTYPE html><html lang=\"he\"><head><title>BOX כאן 11</title></head>",
+        "<body><a href=\"https://www.kan.org.il/content/kan/kan-11/p-12832/\">קופה ראשית</a>",
+        "<script>var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=abc';</script>",
+        "</body></html>",
+    ].join("");
+    const response = {
+        statusCode: 200,
+        headers: { "content-type": "text/html; charset=utf-8", server: "cloudflare" },
+    };
+    assert.equal(isOrchestrateChallenge(response, body), false);
+    // server: cloudflare still enters challenge handling, but orchestrate must not fire.
+    assert.equal(shouldHandleChallenge(response, body), true);
+});
+
 test("cf-mitigated: challenge is handled without Just a moment title", () => {
     const body = "<html><body>wait</body></html>";
     const response = { statusCode: 403, headers: { "cf-mitigated": "challenge", "content-type": "text/html" } };

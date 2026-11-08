@@ -1,5 +1,12 @@
 ## Change Log
 
+### 2.1.2
+
+**Detection**
+
+- Stop treating Cloudflare's post-clearance bot-management beacon (`/cdn-cgi/challenge-platform/scripts/jsd/main.js`) as an active orchestrate challenge. Cleared pages on sites such as `kan.org.il` embed that script and were incorrectly throwing `OrchestrateChallengeError` (HTTP 0) despite returning full HTML.
+- Active challenge detection now requires `_cf_chl_opt`, Turnstile / verification widgets, or real challenge paths (`/h/`, `orchestrate`, `static/`, non-`jsd` scripts).
+
 ### 2.1.1
 
 FlareSolverr v3.5.x-aligned orchestrate solver hardening for managed Turnstile / Hebrew interstitials.

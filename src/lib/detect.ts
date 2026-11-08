@@ -19,6 +19,24 @@ export function isAccessDeniedPage(body: string): boolean {
     return /Sorry, you have been blocked/i.test(body);
 }
 
+/**
+ * Active Cloudflare orchestrate / managed-challenge markers.
+ *
+ * Do NOT treat the post-clearance bot-management beacon
+ * (`/cdn-cgi/challenge-platform/scripts/jsd/main.js`) as a challenge — Cloudflare
+ * injects that script on many successfully cleared HTML pages (e.g. kan.org.il).
+ */
+export function hasActiveOrchestrateMarkers(body: string): boolean {
+    if (body.indexOf("_cf_chl_opt") !== -1) return true;
+    if (/cf-turnstile|input\[name=["']cf-turnstile-response["']|challenge-running|cf-browser-verification/i.test(body)) {
+        return true;
+    }
+    // Real challenge script/path prefixes (exclude the jsd beacon).
+    if (/cdn-cgi\/challenge-platform\/(?:h\/|orchestrate|static\/)/i.test(body)) return true;
+    if (/cdn-cgi\/challenge-platform\/scripts\/(?!jsd(?:\/|"|'|\?|$))/i.test(body)) return true;
+    return false;
+}
+
 /** Whether the response should enter challenge handling (not gated on server: cloudflare). */
 export function shouldHandleChallenge(response: DetectHeaders, body: string): boolean {
     const h = caseless(response.headers);
@@ -28,19 +46,18 @@ export function shouldHandleChallenge(response: DetectHeaders, body: string): bo
     const html = /text\/html/i.test(String(h["content-type"] ?? ""));
     const status = response.statusCode ?? 0;
     if (html && (status === 403 || status === 503)) return true;
-    if (body.indexOf("_cf_chl_opt") !== -1 || body.indexOf("cdn-cgi/challenge-platform") !== -1) return true;
+    if (hasActiveOrchestrateMarkers(body)) return true;
     return false;
 }
 
 export function isOrchestrateChallenge(response: DetectHeaders, body: string): boolean {
     if (isAccessDeniedPage(body)) return false;
     const h = caseless(response.headers);
-    const hasJustAMoment = body.indexOf("Just a moment") !== -1 || /<title[^>]*>[\s\S]*Just a moment[\s\S]*<\/title>/i.test(body);
-    const hasOrchestrate = body.indexOf("_cf_chl_opt") !== -1 || body.indexOf("challenge-platform") !== -1 || body.indexOf("cdn-cgi/challenge-platform") !== -1;
     const hasCfMitigated = h["cf-mitigated"] === "challenge";
     const hasDdosGuard = /ddos-guard/i.test(String(h.server ?? "")) || /<title[^>]*>[\s\S]*DDoS-Guard[\s\S]*<\/title>/i.test(body);
     const hasOldIuam = body.indexOf("a = document.getElementById('jschl-answer');") !== -1;
-    return !hasOldIuam && (hasCfMitigated || hasOrchestrate || hasDdosGuard || (hasJustAMoment && hasOrchestrate));
+    const hasActive = hasActiveOrchestrateMarkers(body);
+    return !hasOldIuam && (hasCfMitigated || hasDdosGuard || hasActive);
 }
 
 export function isSucuriRedirect(body: string): boolean {
