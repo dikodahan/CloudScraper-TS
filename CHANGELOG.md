@@ -2,6 +2,12 @@
 
 ### 2.1.5
 
+**Dependencies / audit**
+
+- Override vulnerable `minimatch` (`>=7 <11.0.1` → `11.0.5`) under ESLint / typescript-eslint (GHSA-g3hv-75wg-m249).
+- Minor/patch bumps: `got` ^16.2.0, `tough-cookie` ^6.1.0, `impit` ^0.14.8, `patchright` ^1.64.3, `playwright` ^1.65.0, `eslint` ^10.14.0, `typescript-eslint` ^8.72.1, `dotenv` ^18.0.9, `prettier` ^3.9.10, `@types/node` ^24.19.2.
+- Ignore invalid `LANG` values like `C.UTF-8` when setting Chromium `locale` (fixes `Emulation.setLocaleOverride: Invalid locale name` on patchright ≥1.64).
+
 **Packaging**
 
 - Declare an empty-ish `allowScripts` map so nested `npm install` during GitHub dependency preparation succeeds under npm 11 + a user-level `allow-scripts` npmrc.

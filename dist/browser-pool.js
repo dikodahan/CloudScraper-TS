@@ -45,6 +45,20 @@ function browserProxy(proxy) {
         return { server: proxy };
     }
 }
+/** Chromium rejects POSIX/C locales (`C`, `POSIX`, `C.UTF-8` → `C`). Only pass BCP-47 tags. */
+function browserLocaleFromEnv() {
+    const raw = process.env.LANG || process.env.LC_ALL || "";
+    const candidate = raw.split(".")[0]?.split("@")[0]?.replace(/_/g, "-");
+    if (!candidate || /^(C|POSIX)$/i.test(candidate))
+        return undefined;
+    try {
+        const [canonical] = Intl.getCanonicalLocales(candidate);
+        return canonical;
+    }
+    catch {
+        return undefined;
+    }
+}
 function systemChromiumPath() {
     const candidates = [
         process.env.CLOUDSCRAPER_CHROMIUM_EXECUTABLE_PATH,
@@ -98,7 +112,7 @@ async function getOrCreate(lib, opts) {
         launchOpts.proxy = browserProxy(opts.proxy);
     }
     const browser = await lib.chromium.launch(launchOpts);
-    const locale = process.env.LANG?.split(".")[0]?.replace("_", "-");
+    const locale = browserLocaleFromEnv();
     const context = await browser.newContext({
         ...(locale ? { locale } : {}),
         // Avoid fixed small viewports that look automated to Turnstile.

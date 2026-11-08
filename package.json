@@ -1,6 +1,6 @@
 {
   "name": "cloudscraper-ts",
-  "version": "2.1.5",
+  "version": "2.1.6",
   "description": "Bypasses Cloudflare JS challenges and anti-bot interstitial pages.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -43,13 +43,13 @@
   },
   "homepage": "https://github.com/dikodahan/CloudScraper-TS#readme",
   "dependencies": {
-    "got": "^16.0.0",
+    "got": "^16.2.0",
     "hpagent": "^1.2.0",
-    "tough-cookie": "^6.0.2"
+    "tough-cookie": "^6.1.0"
   },
   "peerDependencies": {
-    "impit": "^0.14.5",
-    "patchright": "^1.63.0",
+    "impit": "^0.14.8",
+    "patchright": "^1.64.3",
     "puppeteer-core": "*"
   },
   "peerDependenciesMeta": {
@@ -65,17 +65,17 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@types/node": "^24.19.1",
-    "dotenv": "^18.0.5",
-    "eslint": "^10.12.0",
-    "playwright": "^1.63.0",
-    "prettier": "^3.9.9",
+    "@types/node": "^24.19.2",
+    "dotenv": "^18.0.9",
+    "eslint": "^10.14.0",
+    "playwright": "^1.65.0",
+    "prettier": "^3.9.10",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.71.0"
+    "typescript-eslint": "^8.72.1"
   },
   "optionalDependencies": {
-    "impit": "^0.14.5",
-    "patchright": "^1.63.0"
+    "impit": "^0.14.8",
+    "patchright": "^1.64.3"
   },
   "allowScripts": {
     "esbuild": true,
