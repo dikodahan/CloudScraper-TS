@@ -1,5 +1,11 @@
 ## Change Log
 
+### 2.1.5
+
+**Packaging**
+
+- Declare an empty-ish `allowScripts` map so nested `npm install` during GitHub dependency preparation succeeds under npm 11 + a user-level `allow-scripts` npmrc.
+
 ### 2.1.4
 
 **Packaging**
