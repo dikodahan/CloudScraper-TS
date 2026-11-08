@@ -1,5 +1,11 @@
 ## Change Log
 
+### 2.1.3
+
+**Packaging**
+
+- `prepare` skips `tsc` when `dist/index.js` is already present so GitHub installs work under npm's `allowScripts` policy (committed `dist` is enough). `prepublishOnly` still builds before publish.
+
 ### 2.1.2
 
 **Detection**
